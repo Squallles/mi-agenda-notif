@@ -589,12 +589,13 @@ function startVoice(targetId) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return toast('Voz no soportada', 'error');
   if (activeRecognition) { activeRecognition.stop(); return; }
-  const recognition = new SR(); recognition.lang = 'es-ES'; recognition.continuous = true; recognition.interimResults = true; activeRecognition = recognition;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const recognition = new SR(); recognition.lang = 'es-ES'; recognition.continuous = !isIOS; recognition.interimResults = true; activeRecognition = recognition;
   const btn = document.querySelector(`#${targetId}`).parentElement.querySelector('.mic-btn'); btn.classList.add('recording');
   const target = document.getElementById(targetId); const existing = target.value;
   recognition.onresult = (e) => { let interim='',final=''; for(let i=0;i<e.results.length;i++){if(e.results[i].isFinal)final+=e.results[i][0].transcript;else interim+=e.results[i][0].transcript;} const sep=existing.length>0&&!existing.endsWith(' ')?' ':''; target.value=existing+sep+final+interim; };
   recognition.onend = () => { btn.classList.remove('recording'); activeRecognition = null; if (target.value) target.value = target.value.charAt(0).toUpperCase() + target.value.slice(1); };
-  recognition.onerror = (e) => { btn.classList.remove('recording'); activeRecognition = null; if (e.error === 'not-allowed') toast('Permite acceso al micrófono', 'error'); };
+  recognition.onerror = (e) => { btn.classList.remove('recording'); activeRecognition = null; if (e.error === 'not-allowed') toast('Permite acceso al micrófono', 'error'); else if (e.error !== 'aborted' && e.error !== 'no-speech') toast('Error: ' + e.error, 'error'); };
   recognition.start();
 }
 
@@ -647,13 +648,40 @@ function startQuickVoice() {
   if (!SR) return toast('Voz no soportada', 'error');
   const fab = document.getElementById('fabMic'); const transcript = document.getElementById('fabTranscript');
   if (fabRecognition) { fabRecognition.stop(); return; }
-  const recognition = new SR(); recognition.lang = 'es-ES'; recognition.continuous = true; recognition.interimResults = true; fabRecognition = recognition;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const recognition = new SR();
+  recognition.lang = 'es-ES';
+  recognition.continuous = !isIOS; // iOS no soporta continuous bien
+  recognition.interimResults = true;
+  fabRecognition = recognition;
   fab.classList.add('recording'); transcript.classList.add('visible'); transcript.textContent = 'Escuchando...';
-  let finalText = '', silenceTimer = null;
-  function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => recognition.stop(), 2000); }
-  recognition.onresult = (e) => { let interim=''; finalText=''; for(let i=0;i<e.results.length;i++){if(e.results[i].isFinal)finalText+=e.results[i][0].transcript;else interim+=e.results[i][0].transcript;} transcript.textContent=(finalText+interim)||'Escuchando...'; resetSilenceTimer(); };
+  let finalText = '', silenceTimer = null, hasSpoken = false;
+
+  function resetSilenceTimer() {
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => { recognition.stop(); }, 2000);
+  }
+
+  recognition.onaudiostart = () => { transcript.textContent = 'Habla ahora...'; };
+
+  recognition.onresult = (e) => {
+    hasSpoken = true;
+    let interim = ''; finalText = '';
+    for (let i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    transcript.textContent = (finalText + interim) || 'Escuchando...';
+    resetSilenceTimer();
+  };
+
   recognition.onend = () => {
-    clearTimeout(silenceTimer); fab.classList.remove('recording'); transcript.classList.remove('visible'); fabRecognition = null;
+    clearTimeout(silenceTimer);
+    // iOS non-continuous: if user spoke, process. If not, restart once.
+    if (isIOS && !hasSpoken && fab.classList.contains('recording')) {
+      try { recognition.start(); return; } catch(e) {}
+    }
+    fab.classList.remove('recording'); transcript.classList.remove('visible'); fabRecognition = null;
     if (!finalText.trim()) return;
     let title = finalText.trim(); let hour = parseTime(title); const parsedDate = parseDate(title); title = stripDate(stripTime(title));
     title = title.replace(/^(anotar|apuntar|crear|añadir|poner)\s+/i, '').replace(/\s+/g,' ').trim();
@@ -664,8 +692,16 @@ function startQuickVoice() {
     selectedDate = evDate; currentMonth = evDate.getMonth(); currentYear = evDate.getFullYear(); showMonth();
     toast(`"${title}" — ${evDate.toLocaleDateString('es-ES',{day:'numeric',month:'long'})} a las ${hour}`, 'success');
   };
-  recognition.onerror = (e) => { clearTimeout(silenceTimer); fab.classList.remove('recording'); transcript.classList.remove('visible'); fabRecognition = null; if (e.error==='not-allowed') toast('Permite acceso al micrófono','error'); };
-  recognition.start(); resetSilenceTimer();
+
+  recognition.onerror = (e) => {
+    clearTimeout(silenceTimer); fab.classList.remove('recording'); transcript.classList.remove('visible'); fabRecognition = null;
+    if (e.error === 'not-allowed') toast('Permite acceso al micrófono', 'error');
+    else if (e.error === 'no-speech') toast('No se detectó voz, inténtalo de nuevo', 'error');
+    else if (e.error !== 'aborted') toast('Error de voz: ' + e.error, 'error');
+  };
+
+  recognition.start();
+  // NO timer inicial — solo empieza el timer cuando el usuario habla
 }
 
 // ── Init ────────────────────────────────────────────────────────────────
