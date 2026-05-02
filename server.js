@@ -30,7 +30,7 @@ let errorCount = 0;
 // ── Auth middleware ─────────────────────────────────────────────────────
 function requireKey(req, res, next) {
   // Public endpoints skip auth
-  if (req.path === '/api/vapid-public' || req.path === '/api/health') return next();
+  if (req.path === '/vapid-public' || req.path === '/health') return next();
   const key = req.headers['x-api-key'];
   if (key !== API_KEY) return res.status(401).json({ error: 'Invalid or missing API key' });
   next();
