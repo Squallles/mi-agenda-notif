@@ -255,11 +255,12 @@ body::before{content:'';position:fixed;top:-30%;left:-30%;width:160%;height:160%
         <label>Recordatorios</label>
         <div class="reminder-toggles">
           <button type="button" class="rem-chip" data-min="0" onclick="toggleRem(this)">En el momento</button>
-          <button type="button" class="rem-chip active" data-min="5" onclick="toggleRem(this)">5 min</button>
+          <button type="button" class="rem-chip" data-min="5" onclick="toggleRem(this)">5 min</button>
           <button type="button" class="rem-chip" data-min="15" onclick="toggleRem(this)">15 min</button>
           <button type="button" class="rem-chip" data-min="30" onclick="toggleRem(this)">30 min</button>
-          <button type="button" class="rem-chip" data-min="60" onclick="toggleRem(this)">1 hora</button>
-          <button type="button" class="rem-chip" data-min="1440" onclick="toggleRem(this)">1 día</button>
+          <button type="button" class="rem-chip active" data-min="60" onclick="toggleRem(this)">1 hora</button>
+          <button type="button" class="rem-chip active" data-min="9am" onclick="toggleRem(this)">Ese día 9:00</button>
+          <button type="button" class="rem-chip active" data-min="1440" onclick="toggleRem(this)">1 día</button>
         </div>
       </div>
       <div class="modal-actions">
@@ -360,21 +361,31 @@ function updateNotifUI() {
 async function scheduleReminders(ev) {
   if (!isSubscribed) return;
   const evDate = new Date(ev.date + 'T' + ev.start);
-  const reminders = ev.reminders || [5];
+  const reminders = ev.reminders || [60, '9am', 1440];
 
   for (let i = 0; i < reminders.length; i++) {
-    const min = reminders[i];
-    const fireAt = new Date(evDate.getTime() - min * 60000);
+    const rem = reminders[i];
+    let fireAt, label;
+
+    if (rem === '9am') {
+      // Same day at 9:00
+      fireAt = new Date(ev.date + 'T09:00:00');
+      label = `Hoy a las 9:00 — evento a las ${ev.start}`;
+    } else {
+      const min = parseInt(rem);
+      fireAt = new Date(evDate.getTime() - min * 60000);
+      label = min === 0 ? 'Ahora' : min < 60 ? `En ${min} min` : min === 60 ? 'En 1 hora' : 'Mañana';
+    }
+
     if (fireAt <= new Date()) continue;
 
-    const label = min === 0 ? 'Ahora' : min < 60 ? `En ${min} min` : min === 60 ? 'En 1 hora' : 'Mañana';
     try {
       await apiFetch('/api/schedule', {
         method: 'POST',
         body: JSON.stringify({
           playerId, eventId: ev.id, remIndex: i,
           title: ev.title,
-          body: `${label} — ${ev.start}`,
+          body: label,
           fireAt: fireAt.toISOString()
         })
       });
@@ -521,8 +532,11 @@ function openModal(ev) {
   selectedColor = ev ? ev.color : 'indigo';
   document.querySelectorAll('.c-dot').forEach(d => d.classList.toggle('active', d.dataset.color === selectedColor));
 
-  const rems = ev ? ev.reminders : [5];
-  document.querySelectorAll('.rem-chip').forEach(c => c.classList.toggle('active', rems.includes(parseInt(c.dataset.min))));
+  const rems = ev ? ev.reminders : [60, '9am', 1440];
+  document.querySelectorAll('.rem-chip').forEach(c => {
+    const val = isNaN(c.dataset.min) ? c.dataset.min : parseInt(c.dataset.min);
+    c.classList.toggle('active', rems.includes(val));
+  });
 
   modal.classList.add('open');
   setTimeout(() => document.getElementById('evTitle').focus(), 300);
@@ -550,7 +564,7 @@ function saveEvent(e) {
   const start = document.getElementById('evStart').value;
   const end = document.getElementById('evEnd').value;
   const notes = document.getElementById('evNotes').value.trim();
-  const reminders = [...document.querySelectorAll('.rem-chip.active')].map(c => parseInt(c.dataset.min));
+  const reminders = [...document.querySelectorAll('.rem-chip.active')].map(c => isNaN(c.dataset.min) ? c.dataset.min : parseInt(c.dataset.min));
   const date = fmtDate(selectedDate);
 
   const isEdit = events.some(ev => ev.id === id);
@@ -703,7 +717,7 @@ function startQuickVoice() {
     // Create event on selected date
     const id = crypto.randomUUID();
     const date = fmtDate(selectedDate);
-    const ev = { id, title, date, start: hour, end: '', notes: '', color: 'indigo', reminders: [5] };
+    const ev = { id, title, date, start: hour, end: '', notes: '', color: 'indigo', reminders: [60, '9am', 1440] };
     events.push(ev);
     saveEvents();
     scheduleReminders(ev);
