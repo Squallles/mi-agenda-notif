@@ -735,25 +735,43 @@ function startQuickVoice() {
 }
 
 // ── Alarm sound + overlay ───────────────────────────────────────────────
-let alarmAudio = null;
+// Pre-load and unlock audio on first user touch (iOS requirement)
+const alarmAudio = new Audio('/alarm.wav');
+alarmAudio.loop = true;
+alarmAudio.volume = 1.0;
+alarmAudio.preload = 'auto';
+let audioUnlocked = false;
 let alarmVibrating = false;
+let alarmPending = null;
+
+function unlockAudio() {
+  if (audioUnlocked) return;
+  // Play and immediately pause to unlock iOS audio
+  alarmAudio.play().then(() => {
+    alarmAudio.pause();
+    alarmAudio.currentTime = 0;
+    audioUnlocked = true;
+    console.log('Audio unlocked');
+    // If alarm was waiting, fire it now
+    if (alarmPending) {
+      showAlarm(alarmPending.title, alarmPending.body);
+      alarmPending = null;
+    }
+  }).catch(() => {});
+}
+
+// Unlock on ANY touch/click anywhere on the page
+document.addEventListener('touchstart', unlockAudio, { once: false });
+document.addEventListener('click', unlockAudio, { once: false });
 
 function playAlarmSound() {
   try {
-    // Use <audio> element — bypasses iOS silent switch
-    alarmAudio = new Audio('/alarm.wav');
-    alarmAudio.loop = true;
-    alarmAudio.volume = 1.0;
-    // iOS requires playsinline
-    alarmAudio.setAttribute('playsinline', '');
+    alarmAudio.currentTime = 0;
     alarmAudio.play().catch(e => {
-      console.warn('Audio play blocked, trying on interaction:', e);
-      // Fallback: play on next touch
-      const handler = () => { alarmAudio.play().catch(()=>{}); document.removeEventListener('touchstart', handler); };
-      document.addEventListener('touchstart', handler);
+      console.warn('Audio play failed:', e);
     });
 
-    // Vibrate pattern repeating
+    // Vibrate
     alarmVibrating = true;
     if (navigator.vibrate) {
       (function vibrateLoop() {
@@ -762,17 +780,36 @@ function playAlarmSound() {
         setTimeout(vibrateLoop, 2000);
       })();
     }
-  } catch(e) { console.error('Alarm sound error:', e); }
+  } catch(e) { console.error('Alarm error:', e); }
 }
 
 function stopAlarm() {
   document.getElementById('alarmOverlay').classList.remove('active');
-  if (alarmAudio) { alarmAudio.pause(); alarmAudio.currentTime = 0; alarmAudio = null; }
+  alarmAudio.pause();
+  alarmAudio.currentTime = 0;
   alarmVibrating = false;
   if (navigator.vibrate) navigator.vibrate(0);
 }
 
 function showAlarm(title, body) {
+  if (!audioUnlocked) {
+    // Audio not unlocked yet — queue it, will fire on next touch
+    alarmPending = { title, body };
+    // Still show overlay so user taps "Parar" which triggers the audio
+    document.getElementById('alarmTitle').textContent = title || 'Recordatorio';
+    document.getElementById('alarmBody').textContent = body || '';
+    document.getElementById('alarmOverlay').classList.add('active');
+    // Vibrate at least
+    alarmVibrating = true;
+    if (navigator.vibrate) {
+      (function vibrateLoop() {
+        if (!alarmVibrating) return;
+        navigator.vibrate([500, 200, 500, 200, 500]);
+        setTimeout(vibrateLoop, 2000);
+      })();
+    }
+    return;
+  }
   document.getElementById('alarmTitle').textContent = title || 'Recordatorio';
   document.getElementById('alarmBody').textContent = body || '';
   document.getElementById('alarmOverlay').classList.add('active');
