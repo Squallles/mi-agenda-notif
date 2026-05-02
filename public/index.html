@@ -81,7 +81,6 @@ body{min-height:100dvh}
 .event-card:active{transform:scale(.98)}
 .event-time{display:flex;flex-direction:column;align-items:center;min-width:44px;padding-top:2px}
 .event-time .hour{font-size:.85rem;font-weight:700;color:var(--accent)}
-.event-time .ampm{font-size:.6rem;color:var(--text-muted);font-weight:500;margin-top:1px}
 .event-bar{width:3px;border-radius:3px;align-self:stretch;flex-shrink:0}
 .event-info{flex:1;min-width:0}
 .event-info h4{font-size:.88rem;font-weight:600;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -111,14 +110,14 @@ body{min-height:100dvh}
 .tab span{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 
 /* ── FAB Micrófono ── */
-.fab-mic{position:fixed;bottom:80px;right:20px;width:56px;height:56px;border-radius:50%;border:none;background:var(--dark);color:#fff;cursor:pointer;display:grid;place-items:center;z-index:55;box-shadow:0 4px 20px #1a141040;transition:all .2s}
+.fab-mic{position:fixed;bottom:100px;right:20px;width:56px;height:56px;border-radius:50%;border:none;background:var(--dark);color:#fff;cursor:pointer;display:grid;place-items:center;z-index:55;box-shadow:0 4px 20px #1a141040;transition:all .2s}
 .fab-mic:hover{transform:scale(1.06)}
 .fab-mic:active{transform:scale(.94)}
 .fab-mic svg{width:24px;height:24px;z-index:2}
 .fab-mic.recording{background:var(--danger);box-shadow:0 4px 20px #e5393540}
 .fab-pulse{position:absolute;inset:0;border-radius:50%;background:var(--danger);opacity:0;z-index:1;pointer-events:none}
 .fab-mic.recording .fab-pulse{animation:fab-ring 1.5s ease-out infinite}
-.fab-transcript{position:fixed;bottom:148px;left:50%;transform:translateX(-50%);background:var(--surface);border-radius:var(--radius);padding:12px 20px;font-size:.88rem;font-weight:500;color:var(--text);z-index:55;box-shadow:0 4px 24px #1a141018;max-width:calc(100vw - 40px);text-align:center;display:none;animation:slideDown .2s ease}
+.fab-transcript{position:fixed;bottom:168px;left:50%;transform:translateX(-50%);background:var(--surface);border-radius:var(--radius);padding:12px 20px;font-size:.88rem;font-weight:500;color:var(--text);z-index:55;box-shadow:0 4px 24px #1a141018;max-width:calc(100vw - 40px);text-align:center;display:none;animation:slideDown .2s ease}
 .fab-transcript.visible{display:block}
 
 /* ── Search overlay ── */
@@ -459,10 +458,8 @@ function renderDayDetail() {
   } else {
     html += '<div class="events-list">';
     dayEvents.forEach(ev => {
-      const [h, m] = ev.start.split(':'); const hour = parseInt(h);
-      const ampm = hour >= 12 ? 'PM' : 'AM'; const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
       const color = COLORS[ev.color] || COLORS.orange;
-      html += `<div class="event-card"><div class="event-time"><span class="hour">${h12}:${m}</span><span class="ampm">${ampm}</span></div><div class="event-bar" style="background:${color}"></div><div class="event-info"><h4>${esc(ev.title)}</h4><p>${ev.start}${ev.end?' — '+ev.end:''}${ev.notes?' · '+esc(ev.notes):''}</p></div><div class="event-actions"><button onclick="editEvent('${ev.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button><button class="del" onclick="deleteEvent('${ev.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></div>`;
+      html += `<div class="event-card"><div class="event-time"><span class="hour">${ev.start}</span></div><div class="event-bar" style="background:${color}"></div><div class="event-info"><h4>${esc(ev.title)}</h4><p>${ev.start}${ev.end?' — '+ev.end:''}${ev.notes?' · '+esc(ev.notes):''}</p></div><div class="event-actions"><button onclick="editEvent('${ev.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button><button class="del" onclick="deleteEvent('${ev.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></div>`;
     });
     html += '</div>';
   }
@@ -488,9 +485,8 @@ function showAgenda() {
         const d = new Date(ev.date + 'T12:00:00');
         html += `<div style="padding:8px 0 4px;font-size:.75rem;font-weight:700;color:var(--text-dim)">${d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'})}</div>`;
       }
-      const [h,m] = ev.start.split(':'); const hour = parseInt(h);
       const color = COLORS[ev.color] || COLORS.orange;
-      html += `<div class="event-card" onclick="selectDate('${ev.date}');showMonth()"><div class="event-time"><span class="hour">${hour>12?hour-12:hour||12}:${m}</span><span class="ampm">${hour>=12?'PM':'AM'}</span></div><div class="event-bar" style="background:${color}"></div><div class="event-info"><h4>${esc(ev.title)}</h4><p>${ev.start}${ev.notes?' · '+esc(ev.notes):''}</p></div></div>`;
+      html += `<div class="event-card" onclick="selectDate('${ev.date}');showMonth()"><div class="event-time"><span class="hour">${ev.start}</span></div><div class="event-bar" style="background:${color}"></div><div class="event-info"><h4>${esc(ev.title)}</h4><p>${ev.start}${ev.notes?' · '+esc(ev.notes):''}</p></div></div>`;
     });
     html += '</div>';
   }
