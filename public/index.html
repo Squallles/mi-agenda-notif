@@ -789,6 +789,8 @@ function stopAlarm() {
   alarmAudio.currentTime = 0;
   alarmVibrating = false;
   if (navigator.vibrate) navigator.vibrate(0);
+  // Tell server to stop the push burst
+  apiFetch('/api/stop-alarm', { method: 'POST', body: JSON.stringify({}) }).catch(() => {});
 }
 
 function showAlarm(title, body) {

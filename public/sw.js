@@ -1,32 +1,30 @@
-// Service Worker for Push Notifications + Alarm
+// Service Worker for Push Notifications + Alarm Burst
 self.addEventListener('push', (event) => {
   let data = { title: 'Mi Agenda', body: 'Tienes un recordatorio' };
   try { data = event.data.json(); } catch (e) {}
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
-      // Show system notification with persistent vibration
+    Promise.all([
       self.registration.showNotification(data.title, {
         body: data.body,
         icon: '/icon-192.png',
         badge: '/icon-192.png',
-        vibrate: [500, 200, 500, 200, 500, 200, 500, 200, 500],
+        vibrate: [500, 200, 500, 200, 500, 200, 500],
         requireInteraction: true,
-        tag: 'alarm-' + Date.now(),
+        tag: 'alarm',
         renotify: true
-      });
-
-      if (windowClients.length > 0) {
-        // App is open — send alarm message to play sound
-        windowClients.forEach(client => {
-          client.postMessage({ type: 'ALARM', title: data.title, body: data.body });
-        });
-        return windowClients[0].focus().catch(() => {});
-      } else {
-        // App is closed — open it with alarm parameter
-        return self.clients.openWindow('/?alarm=' + encodeURIComponent(JSON.stringify(data)));
-      }
-    })
+      }),
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+        if (clients.length > 0) {
+          clients.forEach(client => {
+            client.postMessage({ type: 'ALARM', title: data.title, body: data.body });
+          });
+          return clients[0].focus().catch(() => {});
+        } else {
+          return self.clients.openWindow('/?alarm=' + encodeURIComponent(JSON.stringify(data)));
+        }
+      })
+    ])
   );
 });
 

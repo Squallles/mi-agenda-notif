@@ -93,10 +93,11 @@ async function pollAndFire() {
 
     for (const n of due) {
       console.log(`Firing: "${n.title}" for ${n.player_id}`);
-      const ok = await sendPush(n.player_id, n.title, n.body);
+      const alarmId = n.id;
+      startAlarmBurst(n.player_id, n.title, n.body, alarmId);
       await supabase
         .from('agenda_scheduled_notifications')
-        .update({ fired: true, sent_ok: ok, retries: n.retries + (ok ? 0 : 1) })
+        .update({ fired: true, sent_ok: true, retries: 0 })
         .eq('id', n.id);
     }
 
@@ -134,6 +135,44 @@ async function pollAndFire() {
 
 function scheduleNext(ms) {
   setTimeout(pollAndFire, ms);
+}
+
+// ── Alarm burst: send repeated pushes until acknowledged ────────────────
+const activeAlarms = new Map(); // alarmId -> interval
+
+function startAlarmBurst(playerId, title, body, alarmId) {
+  let count = 0;
+  const maxPushes = 8; // 8 pushes x 15s = 2 minutes
+
+  // Send first push immediately
+  sendPush(playerId, title, body);
+  count++;
+  console.log(`ALARM burst started: ${alarmId} — "${title}"`);
+
+  const interval = setInterval(async () => {
+    count++;
+    if (count > maxPushes) {
+      clearInterval(interval);
+      activeAlarms.delete(alarmId);
+      console.log(`ALARM burst ended (max): ${alarmId}`);
+      return;
+    }
+    console.log(`ALARM burst #${count}: ${alarmId}`);
+    await sendPush(playerId, title, `${body} (${count}/${maxPushes})`);
+  }, 15000);
+
+  activeAlarms.set(alarmId, interval);
+}
+
+function stopAlarmBurst(alarmId) {
+  const interval = activeAlarms.get(alarmId);
+  if (interval) {
+    clearInterval(interval);
+    activeAlarms.delete(alarmId);
+    console.log(`ALARM burst stopped by user: ${alarmId}`);
+    return true;
+  }
+  return false;
 }
 
 // Start polling
@@ -206,6 +245,19 @@ app.delete('/api/cancel/:eventId', async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true, removed: data.length });
+});
+
+// Stop alarm burst
+app.post('/api/stop-alarm', (req, res) => {
+  const { alarmId } = req.body;
+  // Stop specific alarm or all active alarms
+  if (alarmId) {
+    stopAlarmBurst(alarmId);
+  } else {
+    // Stop all
+    for (const [id] of activeAlarms) { stopAlarmBurst(id); }
+  }
+  res.json({ ok: true, remaining: activeAlarms.size });
 });
 
 // Send a test push immediately
