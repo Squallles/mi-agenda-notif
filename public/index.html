@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#f5f0ea">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -103,8 +103,8 @@ body{min-height:100dvh}
 .notif-banner p strong{color:var(--text);font-weight:600}
 
 /* ── Tab Bar ── */
-.tab-bar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);display:flex;justify-content:center;z-index:60;padding-bottom:env(safe-area-inset-bottom)}
-.tab-bar-inner{display:flex;max-width:480px;width:100%;justify-content:space-around;padding:8px 0 6px}
+.tab-bar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);display:flex;justify-content:center;z-index:60}
+.tab-bar-inner{display:flex;max-width:480px;width:100%;justify-content:space-around;padding:10px 0 calc(10px + env(safe-area-inset-bottom))}
 .tab{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;color:var(--text-muted);cursor:pointer;padding:4px 12px;font-family:inherit;transition:color .2s;-webkit-tap-highlight-color:transparent}
 .tab.active{color:var(--accent)}
 .tab svg{width:22px;height:22px}
@@ -170,12 +170,13 @@ body{min-height:100dvh}
 .input-mic textarea ~ .mic-btn{top:14px;transform:none}
 
 /* ── Toast ── */
-.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:24px;background:var(--dark);color:#fff;font-size:.8rem;font-weight:500;z-index:200;animation:slideDown .3s ease;white-space:nowrap;box-shadow:0 4px 20px #1a141030}
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:24px;background:var(--dark);color:#fff;font-size:.8rem;font-weight:500;z-index:200;animation:toastIn .3s ease;white-space:nowrap;box-shadow:0 4px 20px #1a141030}
 .toast.error{background:#c62828}
 .toast.success{background:#2e7d32}
 
 /* ── Animations ── */
-@keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes slideDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
