@@ -704,9 +704,10 @@ function parseTime(text) {
 }
 
 function fmtTime(h, m, text) {
-  // Adjust for "de la tarde/noche" or "de la mañana"
-  if (/de\s+la\s+(tarde|noche)/i.test(text) && h < 12) h += 12;
-  if (/de\s+la\s+mañana/i.test(text) && h === 12) h = 0;
+  // "de la tarde/noche" → PM (1-11 → 13-23, 12 stays 12)
+  if (/de\s+la\s+(tarde|noche)/i.test(text) && h >= 1 && h <= 11) h += 12;
+  // "de la mañana" → AM (12 de la mañana = medianoche = 0, rest stays)
+  // But "doce de la mañana" in Spanish = mediodía = 12, so don't touch 12
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 
