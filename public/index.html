@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0a0a0f">
+<meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="/manifest.json">
 <title>Mi Agenda</title>
@@ -12,16 +12,16 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;--surface3:#22222f;
-  --border:#2a2a3a;--border-light:#3a3a4f;
-  --text:#e8e8f0;--text-dim:#8888a0;--text-muted:#55556a;
-  --accent:#6366f1;--accent-glow:#818cf833;--accent-light:#a5b4fc;
-  --danger:#ef4444;--success:#22c55e;--warning:#f59e0b;
-  --radius:12px;--radius-sm:8px;
+  --bg:#f8f9fc;--surface:#ffffff;--surface2:#f0f2f7;--surface3:#e8eaf0;
+  --border:#e0e2ea;--border-light:#d0d3dc;
+  --text:#1a1a2e;--text-dim:#5a5a7a;--text-muted:#9a9ab0;
+  --accent:#4f46e5;--accent-glow:#4f46e514;--accent-light:#6366f1;
+  --danger:#ef4444;--success:#16a34a;--warning:#f59e0b;
+  --radius:14px;--radius-sm:10px;
 }
 html{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;-webkit-tap-highlight-color:transparent}
 body{min-height:100dvh;position:relative}
-body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 30% 20%,#6366f108 0%,transparent 50%),radial-gradient(ellipse at 70% 80%,#a855f708 0%,transparent 50%);pointer-events:none;z-index:0}
+body::before{content:'';position:fixed;top:-30%;left:-30%;width:160%;height:160%;background:radial-gradient(ellipse at 20% 10%,#4f46e50a 0%,transparent 50%),radial-gradient(ellipse at 80% 90%,#ec489910 0%,transparent 50%);pointer-events:none;z-index:0}
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar{width:4px}
@@ -31,16 +31,16 @@ body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%
 /* ── Layout ── */
 .app{max-width:480px;margin:0 auto;padding:0 16px 100px;position:relative;z-index:1}
 .header{padding:20px 0 16px;display:flex;align-items:center;justify-content:space-between}
-.header h1{font-family:'Playfair Display',serif;font-size:1.7rem;font-weight:800;background:linear-gradient(135deg,var(--text),var(--accent-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header h1{font-family:'Playfair Display',serif;font-size:1.7rem;font-weight:800;background:linear-gradient(135deg,var(--accent),#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .header-actions{display:flex;gap:8px}
 .icon-btn{width:40px;height:40px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface);color:var(--text-dim);display:grid;place-items:center;cursor:pointer;transition:all .2s}
 .icon-btn:hover,.icon-btn.active{border-color:var(--accent);color:var(--accent);background:var(--accent-glow)}
 .icon-btn svg{width:18px;height:18px}
 
 /* ── Notif banner ── */
-.notif-banner{background:linear-gradient(135deg,var(--surface2),var(--surface3));border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:all .3s;animation:slideDown .4s ease}
+.notif-banner{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:all .3s;animation:slideDown .4s ease;box-shadow:0 1px 3px #0001}
 .notif-banner:hover{border-color:var(--accent)}
-.notif-banner.subscribed{border-color:var(--success);background:linear-gradient(135deg,#22c55e08,#22c55e04)}
+.notif-banner.subscribed{border-color:var(--success);background:linear-gradient(135deg,#16a34a08,#16a34a04)}
 .notif-banner .dot{width:8px;height:8px;border-radius:50%;background:var(--warning);flex-shrink:0;animation:pulse 2s infinite}
 .notif-banner.subscribed .dot{background:var(--success);animation:none}
 .notif-banner p{font-size:.82rem;color:var(--text-dim);line-height:1.4}
@@ -82,10 +82,10 @@ body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%
 
 /* ── Event Cards ── */
 .events-list{display:flex;flex-direction:column;gap:8px}
-.event-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;gap:12px;transition:all .2s;animation:slideDown .3s ease}
-.event-card:hover{border-color:var(--border-light);transform:translateY(-1px)}
+.event-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;gap:12px;transition:all .2s;animation:slideDown .3s ease;box-shadow:0 1px 3px #0001}
+.event-card:hover{border-color:var(--border-light);transform:translateY(-1px);box-shadow:0 4px 12px #0002}
 .event-time{display:flex;flex-direction:column;align-items:center;min-width:44px;padding-top:2px}
-.event-time .hour{font-size:.85rem;font-weight:600;color:var(--accent-light)}
+.event-time .hour{font-size:.85rem;font-weight:600;color:var(--accent)}
 .event-time .ampm{font-size:.65rem;color:var(--text-muted);margin-top:1px}
 .event-bar{width:3px;border-radius:3px;align-self:stretch;flex-shrink:0}
 .event-info{flex:1;min-width:0}
@@ -100,9 +100,9 @@ body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%
 .empty-day svg{width:40px;height:40px;margin-bottom:12px;opacity:.3}
 
 /* ── Modal ── */
-.modal-overlay{position:fixed;inset:0;background:#0008;backdrop-filter:blur(8px);z-index:100;display:none;align-items:flex-end;justify-content:center;animation:fadeIn .2s}
+.modal-overlay{position:fixed;inset:0;background:#1a1a2e40;backdrop-filter:blur(8px);z-index:100;display:none;align-items:flex-end;justify-content:center;animation:fadeIn .2s}
 .modal-overlay.open{display:flex}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:24px 20px 32px;animation:slideUp .3s ease}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:24px 20px 32px;animation:slideUp .3s ease;box-shadow:0 -4px 30px #0002}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .modal-handle{width:36px;height:4px;background:var(--border);border-radius:4px;margin:0 auto 20px}
@@ -129,10 +129,10 @@ body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%
 .c-colors{display:flex;gap:8px;flex-wrap:wrap}
 .c-dot{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .15s;opacity:.7}
 .c-dot:hover{opacity:1;transform:scale(1.1)}
-.c-dot.active{border-color:#fff;opacity:1;transform:scale(1.15)}
+.c-dot.active{border-color:var(--text);opacity:1;transform:scale(1.15)}
 
 /* ── Toast ── */
-.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;background:var(--surface3);border:1px solid var(--border);color:var(--text);font-size:.82rem;z-index:200;animation:slideDown .3s ease;white-space:nowrap}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-size:.82rem;z-index:200;animation:slideDown .3s ease;white-space:nowrap;box-shadow:0 4px 16px #0002}
 .toast.error{border-color:var(--danger);color:var(--danger)}
 .toast.success{border-color:var(--success);color:var(--success)}
 </style>
