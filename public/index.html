@@ -656,6 +656,71 @@ function startVoice(targetId) {
   recognition.start();
 }
 
+// ── Parse time from Spanish voice input ──────────────────────────────────
+const WORD_TO_NUM = {una:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,once:11,doce:12};
+
+function parseTime(text) {
+  const t = text.toLowerCase();
+
+  // "a las 15:30", "a las 10"
+  let m = t.match(/a\s+las?\s+(\d{1,2})[:\s]?(\d{2})?/);
+  if (m) return fmtTime(parseInt(m[1]), parseInt(m[2] || 0), t);
+
+  // "a las doce", "a las once y media"
+  for (const [word, num] of Object.entries(WORD_TO_NUM)) {
+    const re = new RegExp(`a\\s+las?\\s+${word}(\\s+y\\s+media)?`, 'i');
+    const wm = t.match(re);
+    if (wm) return fmtTime(num, wm[1] ? 30 : 0, t);
+  }
+
+  // "doce de la mañana", "tres de la tarde"
+  for (const [word, num] of Object.entries(WORD_TO_NUM)) {
+    const re = new RegExp(`${word}(\\s+y\\s+media)?\\s+de\\s+la\\s+(mañana|tarde|noche)`, 'i');
+    const wm = t.match(re);
+    if (wm) {
+      const period = wm[2].toLowerCase();
+      let h = num;
+      if (period === 'tarde' || period === 'noche') h = num < 12 ? num + 12 : num;
+      return `${String(h).padStart(2,'0')}:${wm[1] ? '30' : '00'}`;
+    }
+  }
+
+  // "12 de la mañana", "3 de la tarde"
+  m = t.match(/(\d{1,2})(\s+y\s+media)?\s+de\s+la\s+(mañana|tarde|noche)/);
+  if (m) {
+    let h = parseInt(m[1]);
+    const period = m[3].toLowerCase();
+    if (period === 'tarde' || period === 'noche') h = h < 12 ? h + 12 : h;
+    return `${String(h).padStart(2,'0')}:${m[2] ? '30' : '00'}`;
+  }
+
+  // "por la mañana" / "por la tarde" without specific time
+  if (/por\s+la\s+mañana/.test(t)) return '09:00';
+  if (/por\s+la\s+tarde/.test(t)) return '16:00';
+  if (/por\s+la\s+noche/.test(t)) return '20:00';
+  if (/a\s+mediodía|al\s+mediodía/.test(t)) return '12:00';
+
+  return '09:00';
+}
+
+function fmtTime(h, m, text) {
+  // Adjust for "de la tarde/noche" or "de la mañana"
+  if (/de\s+la\s+(tarde|noche)/i.test(text) && h < 12) h += 12;
+  if (/de\s+la\s+mañana/i.test(text) && h === 12) h = 0;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+
+function stripTime(text) {
+  return text
+    .replace(/\ba\s+las?\s+(\d{1,2})[:\s]?\d{0,2}\b/gi, '')
+    .replace(/\ba\s+las?\s+(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(\s+y\s+media)?\b/gi, '')
+    .replace(/\b(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(\s+y\s+media)?\s+de\s+la\s+(mañana|tarde|noche)\b/gi, '')
+    .replace(/\b\d{1,2}(\s+y\s+media)?\s+de\s+la\s+(mañana|tarde|noche)\b/gi, '')
+    .replace(/\b(por\s+la\s+(mañana|tarde|noche)|a\s+mediodía|al\s+mediodía)\b/gi, '')
+    .replace(/\bde\s+la\s+(mañana|tarde|noche)\b/gi, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
 // ── FAB: voz rápida desde pantalla principal ─────────────────────────────
 let fabRecognition = null;
 
@@ -680,6 +745,12 @@ function startQuickVoice() {
   transcript.textContent = 'Escuchando...';
 
   let finalText = '';
+  let silenceTimer = null;
+
+  function resetSilenceTimer() {
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => { recognition.stop(); }, 2000);
+  }
 
   recognition.onresult = (e) => {
     let interim = '';
@@ -689,32 +760,27 @@ function startQuickVoice() {
       else interim += e.results[i][0].transcript;
     }
     transcript.textContent = (finalText + interim) || 'Escuchando...';
+    resetSilenceTimer();
   };
 
   recognition.onend = () => {
+    clearTimeout(silenceTimer);
     fab.classList.remove('recording');
     transcript.classList.remove('visible');
     fabRecognition = null;
 
     if (!finalText.trim()) return;
 
-    // Parse: try to extract time like "a las 10" "a las 15:30"
     let title = finalText.trim();
-    let hour = '09:00';
-    const timeMatch = title.match(/\ba las?\s+(\d{1,2})(?::(\d{2}))?\b/i);
-    if (timeMatch) {
-      const h = timeMatch[1].padStart(2, '0');
-      const m = timeMatch[2] || '00';
-      hour = `${h}:${m}`;
-      title = title.replace(timeMatch[0], '').trim();
-    }
+    let hour = parseTime(title);
+    title = stripTime(title);
 
     // Clean up
     title = title.replace(/^(anotar|apuntar|crear|añadir|poner)\s+/i, '');
+    title = title.replace(/\s+/g, ' ').trim();
     title = title.charAt(0).toUpperCase() + title.slice(1);
     if (!title) return;
 
-    // Create event on selected date
     const id = crypto.randomUUID();
     const date = fmtDate(selectedDate);
     const ev = { id, title, date, start: hour, end: '', notes: '', color: 'indigo', reminders: [60, '9am', 1440] };
@@ -726,6 +792,7 @@ function startQuickVoice() {
   };
 
   recognition.onerror = (e) => {
+    clearTimeout(silenceTimer);
     fab.classList.remove('recording');
     transcript.classList.remove('visible');
     fabRecognition = null;
@@ -734,6 +801,7 @@ function startQuickVoice() {
   };
 
   recognition.start();
+  resetSilenceTimer();
 }
 
 // Close modal on overlay click
