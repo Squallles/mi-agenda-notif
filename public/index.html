@@ -184,6 +184,21 @@ body{min-height:100dvh}
 .alarm-stop{margin-top:20px;padding:16px 60px;border-radius:50px;border:none;background:#fff;color:var(--dark);font-size:1.1rem;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 20px #ffffff30;transition:transform .2s}
 .alarm-stop:active{transform:scale(.95)}
 
+/* ── Checklist ── */
+.checklist{list-style:none;padding:0;margin:2px 0 0}
+.checklist li{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:.73rem;color:var(--text-dim)}
+.checklist li.done{text-decoration:line-through;opacity:.5}
+.checklist input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+
+/* ── Export/Import buttons ── */
+.io-buttons{display:flex;gap:8px;margin-top:16px;justify-content:center}
+.io-btn{padding:8px 16px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-size:.72rem;font-weight:600;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;transition:all .2s}
+.io-btn:active{background:var(--surface2)}
+.io-btn svg{width:14px;height:14px}
+
+/* ── Repeat badge ── */
+.repeat-badge{display:inline-block;font-size:.6rem;background:var(--accent-soft);color:var(--accent);padding:1px 6px;border-radius:8px;font-weight:600;margin-left:4px;vertical-align:middle}
+
 /* ── Animations ── */
 @keyframes slideDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
@@ -274,6 +289,9 @@ body{min-height:100dvh}
   </div>
 </nav>
 
+<!-- Hidden file input for import -->
+<input type="file" id="icsFileInput" accept=".ics" style="display:none" onchange="importICS(this)">
+
 <!-- Search Overlay -->
 <div class="search-overlay" id="searchOverlay">
   <div class="search-bar">
@@ -314,9 +332,20 @@ body{min-height:100dvh}
       <div class="field">
         <label>Notas</label>
         <div class="input-mic">
-          <textarea id="evNotes" placeholder="Opcional..."></textarea>
+          <textarea id="evNotes" placeholder="Notas o checklist:&#10;[] Comprar pan&#10;[] Llamar fontanero"></textarea>
           <button type="button" class="mic-btn" onclick="startVoice('evNotes')" title="Dictar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg></button>
         </div>
+      </div>
+      <div class="field">
+        <label>Repetir</label>
+        <select id="evRepeat">
+          <option value="">No se repite</option>
+          <option value="daily">Cada día</option>
+          <option value="weekly">Cada semana</option>
+          <option value="biweekly">Cada 2 semanas</option>
+          <option value="monthly">Cada mes</option>
+          <option value="yearly">Cada año</option>
+        </select>
       </div>
       <div class="field">
         <label>Color</label>
@@ -460,7 +489,9 @@ function renderDayDetail() {
     html += '<div class="events-list">';
     dayEvents.forEach(ev => {
       const color = COLORS[ev.color] || COLORS.orange;
-      html += `<div class="event-card"><div class="event-time"><span class="hour">${ev.start}</span></div><div class="event-bar" style="background:${color}"></div><div class="event-info"><h4>${esc(ev.title)}</h4><p>${ev.start}${ev.end?' — '+ev.end:''}${ev.notes?' · '+esc(ev.notes):''}</p></div><div class="event-actions"><button onclick="editEvent('${ev.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button><button class="del" onclick="deleteEvent('${ev.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></div>`;
+      const repeatLabel = ev.repeat ? ({daily:'Diario',weekly:'Semanal',biweekly:'Quincenal',monthly:'Mensual',yearly:'Anual'}[ev.repeat]||'') : '';
+      const notesHtml = renderNotes(ev.notes, ev.id);
+      html += `<div class="event-card"><div class="event-time"><span class="hour">${ev.start}</span></div><div class="event-bar" style="background:${color}"></div><div class="event-info"><h4>${esc(ev.title)}${repeatLabel?'<span class="repeat-badge">'+repeatLabel+'</span>':''}</h4><p>${ev.start}${ev.end?' — '+ev.end:''}</p>${notesHtml}</div><div class="event-actions"><button onclick="editEvent('${ev.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button><button class="del" onclick="deleteEvent('${ev.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></div>`;
     });
     html += '</div>';
   }
@@ -491,6 +522,10 @@ function showAgenda() {
     });
     html += '</div>';
   }
+  html += `<div class="io-buttons">
+    <button class="io-btn" onclick="exportICS()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Exportar .ics</button>
+    <button class="io-btn" onclick="document.getElementById('icsFileInput').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Importar .ics</button>
+  </div>`;
   document.getElementById('dayDetail').innerHTML = html;
   document.getElementById('calGrid').innerHTML = '';
   document.getElementById('calHeader').innerHTML = '';
@@ -559,6 +594,7 @@ function openModal(ev) {
   document.getElementById('evStart').value = ev ? ev.start : '09:00';
   document.getElementById('evEnd').value = ev ? ev.end : '10:00';
   document.getElementById('evNotes').value = ev ? ev.notes : '';
+  document.getElementById('evRepeat').value = ev ? (ev.repeat || '') : '';
   selectedColor = ev ? ev.color : 'orange';
   document.querySelectorAll('.c-dot').forEach(d => d.classList.toggle('active', d.dataset.color === selectedColor));
   const rems = ev ? ev.reminders : [60, '9am', 1440];
@@ -587,18 +623,60 @@ function saveEvent(e) {
   const end = document.getElementById('evEnd').value;
   const notes = document.getElementById('evNotes').value.trim();
   const reminders = [...document.querySelectorAll('.rem-chip.active')].map(c => isNaN(c.dataset.min) ? c.dataset.min : parseInt(c.dataset.min));
+  const repeat = document.getElementById('evRepeat').value;
   const date = fmtDate(selectedDate);
   const isEdit = events.some(ev => ev.id === id);
-  if (isEdit) { cancelReminders(id); events = events.filter(ev => ev.id !== id); }
-  const ev = { id, title, date, start, end, notes, color: selectedColor, reminders };
-  events.push(ev); saveEvents(); scheduleReminders(ev);
-  closeModal(); renderCalendar();
-  toast(isEdit ? 'Evento actualizado' : 'Evento creado', 'success');
+  if (isEdit) {
+    // Remove this event and all its recurrence children
+    const editEv = events.find(ev => ev.id === id);
+    const groupId = editEv?.repeatGroupId || id;
+    events.filter(ev => ev.id === id || ev.repeatGroupId === groupId).forEach(ev => cancelReminders(ev.id));
+    events = events.filter(ev => ev.id !== id && ev.repeatGroupId !== groupId);
+  }
+  const groupId = repeat ? crypto.randomUUID() : null;
+  const ev = { id, title, date, start, end, notes, color: selectedColor, reminders, repeat, repeatGroupId: groupId };
+  events.push(ev); scheduleReminders(ev);
+
+  // Generate recurring instances (next 6 months)
+  if (repeat) {
+    const baseDate = new Date(date + 'T12:00:00');
+    for (let i = 1; i <= 180; i++) {
+      const next = new Date(baseDate);
+      if (repeat === 'daily') next.setDate(next.getDate() + i);
+      else if (repeat === 'weekly') { if (i > 26) break; next.setDate(next.getDate() + i * 7); }
+      else if (repeat === 'biweekly') { if (i > 13) break; next.setDate(next.getDate() + i * 14); }
+      else if (repeat === 'monthly') { if (i > 6) break; next.setMonth(next.getMonth() + i); }
+      else if (repeat === 'yearly') { if (i > 2) break; next.setFullYear(next.getFullYear() + i); }
+      else break;
+      const rid = crypto.randomUUID();
+      const rev = { id: rid, title, date: fmtDate(next), start, end, notes, color: selectedColor, reminders, repeat, repeatGroupId: groupId };
+      events.push(rev); scheduleReminders(rev);
+    }
+  }
+
+  saveEvents(); closeModal(); renderCalendar();
+  toast(isEdit ? 'Evento actualizado' : (repeat ? 'Evento recurrente creado' : 'Evento creado'), 'success');
 }
 function editEvent(id) { const ev = events.find(e => e.id === id); if (ev) openModal(ev); }
 function deleteEvent(id) {
-  if (!confirm('¿Seguro que quieres eliminar este evento?')) return;
-  events = events.filter(e => e.id !== id); saveEvents(); cancelReminders(id); renderCalendar(); toast('Evento eliminado');
+  const ev = events.find(e => e.id === id);
+  if (!ev) return;
+  if (ev.repeatGroupId) {
+    const choice = confirm('¿Eliminar TODOS los eventos recurrentes?\n\nAceptar = borrar todos\nCancelar = borrar solo este');
+    if (choice) {
+      const gid = ev.repeatGroupId;
+      events.filter(e => e.repeatGroupId === gid).forEach(e => cancelReminders(e.id));
+      events = events.filter(e => e.repeatGroupId !== gid);
+    } else {
+      cancelReminders(id);
+      events = events.filter(e => e.id !== id);
+    }
+  } else {
+    if (!confirm('¿Eliminar este evento?')) return;
+    cancelReminders(id);
+    events = events.filter(e => e.id !== id);
+  }
+  saveEvents(); renderCalendar(); toast('Evento eliminado');
 }
 function saveEvents() { localStorage.setItem('agenda_events', JSON.stringify(events)); }
 
@@ -824,6 +902,112 @@ if ('serviceWorker' in navigator) {
     if (e.data.type === 'ALARM') showAlarm(e.data.title, e.data.body);
     if (e.data.type === 'STOP_ALARM') stopAlarm();
   });
+}
+
+// ── Checklist rendering ─────────────────────────────────────────────────
+function renderNotes(notes, evId) {
+  if (!notes) return '';
+  const lines = notes.split('\n');
+  const hasChecks = lines.some(l => /^\[[ x]\]/i.test(l.trim()));
+  if (!hasChecks) return `<p style="font-size:.73rem;color:var(--text-dim);margin-top:3px">${esc(notes)}</p>`;
+  let html = '<ul class="checklist">';
+  lines.forEach((line, i) => {
+    const m = line.trim().match(/^\[([ x])\]\s*(.*)/i);
+    if (m) {
+      const checked = m[1].toLowerCase() === 'x';
+      html += `<li class="${checked?'done':''}"><input type="checkbox" ${checked?'checked':''} onchange="toggleCheck('${evId}',${i})"><span>${esc(m[2])}</span></li>`;
+    } else if (line.trim()) {
+      html += `<li><span>${esc(line.trim())}</span></li>`;
+    }
+  });
+  html += '</ul>';
+  return html;
+}
+
+function toggleCheck(evId, lineIdx) {
+  const ev = events.find(e => e.id === evId);
+  if (!ev || !ev.notes) return;
+  const lines = ev.notes.split('\n');
+  const line = lines[lineIdx];
+  if (/^\[ \]/.test(line.trim())) lines[lineIdx] = line.replace('[ ]', '[x]');
+  else if (/^\[x\]/i.test(line.trim())) lines[lineIdx] = line.replace(/\[x\]/i, '[ ]');
+  ev.notes = lines.join('\n');
+  saveEvents(); renderDayDetail();
+}
+
+// ── Swipe navigation ────────────────────────────────────────────────────
+let touchStartX = 0;
+let touchStartY = 0;
+document.addEventListener('touchstart', (e) => {
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+}, { passive: true });
+
+document.addEventListener('touchend', (e) => {
+  if (document.getElementById('modal').classList.contains('open')) return;
+  if (document.getElementById('searchOverlay').classList.contains('open')) return;
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    if (dx > 0) changeMonth(-1);
+    else changeMonth(1);
+  }
+}, { passive: true });
+
+// ── Export .ics ─────────────────────────────────────────────────────────
+function exportICS() {
+  let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mi Agenda//ES\r\n';
+  events.forEach(ev => {
+    const dtStart = ev.date.replace(/-/g,'') + 'T' + ev.start.replace(':','') + '00';
+    const dtEnd = ev.end ? ev.date.replace(/-/g,'') + 'T' + ev.end.replace(':','') + '00' : dtStart;
+    ics += 'BEGIN:VEVENT\r\n';
+    ics += `UID:${ev.id}\r\n`;
+    ics += `DTSTART:${dtStart}\r\n`;
+    ics += `DTEND:${dtEnd}\r\n`;
+    ics += `SUMMARY:${ev.title}\r\n`;
+    if (ev.notes) ics += `DESCRIPTION:${ev.notes.replace(/\n/g,'\\n')}\r\n`;
+    if (ev.repeat) {
+      const freq = {daily:'DAILY',weekly:'WEEKLY',biweekly:'WEEKLY',monthly:'MONTHLY',yearly:'YEARLY'}[ev.repeat];
+      const interval = ev.repeat === 'biweekly' ? ';INTERVAL=2' : '';
+      ics += `RRULE:FREQ=${freq}${interval}\r\n`;
+    }
+    ics += 'END:VEVENT\r\n';
+  });
+  ics += 'END:VCALENDAR\r\n';
+  const blob = new Blob([ics], { type: 'text/calendar' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mi-agenda.ics';
+  a.click();
+  toast('Calendario exportado', 'success');
+}
+
+function importICS(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result;
+    const eventBlocks = text.split('BEGIN:VEVENT');
+    let count = 0;
+    eventBlocks.forEach(block => {
+      const get = (key) => { const m = block.match(new RegExp(`${key}:(.+)`)); return m ? m[1].trim() : ''; };
+      const summary = get('SUMMARY');
+      const dtStart = get('DTSTART');
+      if (!summary || !dtStart) return;
+      const date = dtStart.substring(0,4) + '-' + dtStart.substring(4,6) + '-' + dtStart.substring(6,8);
+      const start = dtStart.length >= 13 ? dtStart.substring(9,11) + ':' + dtStart.substring(11,13) : '09:00';
+      const dtEnd = get('DTEND');
+      const end = dtEnd && dtEnd.length >= 13 ? dtEnd.substring(9,11) + ':' + dtEnd.substring(11,13) : '';
+      const desc = get('DESCRIPTION').replace(/\\n/g, '\n');
+      const ev = { id: crypto.randomUUID(), title: summary, date, start, end, notes: desc, color: 'orange', reminders: [60, '9am', 1440] };
+      events.push(ev); count++;
+    });
+    if (count > 0) { saveEvents(); renderCalendar(); toast(`${count} eventos importados`, 'success'); }
+    else toast('No se encontraron eventos en el archivo', 'error');
+    input.value = '';
+  };
+  reader.readAsText(file);
 }
 
 // ── Init ────────────────────────────────────────────────────────────────
