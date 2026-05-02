@@ -308,7 +308,7 @@ body{min-height:100dvh}
         </div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Hora inicio</label><input type="time" id="evStart" value="09:00" required></div>
+        <div class="field"><label>Hora inicio</label><input type="time" id="evStart" value="09:00" required oninput="autoEndTime()"></div>
         <div class="field"><label>Hora fin</label><input type="time" id="evEnd" value="10:00"></div>
       </div>
       <div class="field">
@@ -567,6 +567,14 @@ function openModal(ev) {
   setTimeout(() => document.getElementById('evTitle').focus(), 300);
 }
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
+function autoEndTime() {
+  const start = document.getElementById('evStart').value;
+  if (!start) return;
+  const [h, m] = start.split(':').map(Number);
+  const endH = (h + 1) % 24;
+  document.getElementById('evEnd').value = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+
 function pickColor(el) { document.querySelectorAll('.c-dot').forEach(d => d.classList.remove('active')); el.classList.add('active'); selectedColor = el.dataset.color; }
 function toggleRem(el) { el.classList.toggle('active'); }
 
@@ -588,7 +596,10 @@ function saveEvent(e) {
   toast(isEdit ? 'Evento actualizado' : 'Evento creado', 'success');
 }
 function editEvent(id) { const ev = events.find(e => e.id === id); if (ev) openModal(ev); }
-function deleteEvent(id) { events = events.filter(e => e.id !== id); saveEvents(); cancelReminders(id); renderCalendar(); toast('Evento eliminado'); }
+function deleteEvent(id) {
+  if (!confirm('¿Seguro que quieres eliminar este evento?')) return;
+  events = events.filter(e => e.id !== id); saveEvents(); cancelReminders(id); renderCalendar(); toast('Evento eliminado');
+}
 function saveEvents() { localStorage.setItem('agenda_events', JSON.stringify(events)); }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -724,35 +735,29 @@ function startQuickVoice() {
 }
 
 // ── Alarm sound + overlay ───────────────────────────────────────────────
-let alarmAudioCtx = null;
-let alarmOscillator = null;
-let alarmInterval = null;
+let alarmAudio = null;
+let alarmVibrating = false;
 
 function playAlarmSound() {
   try {
-    alarmAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    let playing = true;
-
-    function beep() {
-      if (!playing || !alarmAudioCtx) return;
-      const osc = alarmAudioCtx.createOscillator();
-      const gain = alarmAudioCtx.createGain();
-      osc.connect(gain); gain.connect(alarmAudioCtx.destination);
-      osc.frequency.value = 880;
-      osc.type = 'square';
-      gain.gain.setValueAtTime(0.3, alarmAudioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, alarmAudioCtx.currentTime + 0.5);
-      osc.start(); osc.stop(alarmAudioCtx.currentTime + 0.5);
-    }
-
-    beep();
-    alarmInterval = setInterval(beep, 800);
-    alarmOscillator = { stop: () => { playing = false; } };
+    // Use <audio> element — bypasses iOS silent switch
+    alarmAudio = new Audio('/alarm.wav');
+    alarmAudio.loop = true;
+    alarmAudio.volume = 1.0;
+    // iOS requires playsinline
+    alarmAudio.setAttribute('playsinline', '');
+    alarmAudio.play().catch(e => {
+      console.warn('Audio play blocked, trying on interaction:', e);
+      // Fallback: play on next touch
+      const handler = () => { alarmAudio.play().catch(()=>{}); document.removeEventListener('touchstart', handler); };
+      document.addEventListener('touchstart', handler);
+    });
 
     // Vibrate pattern repeating
+    alarmVibrating = true;
     if (navigator.vibrate) {
       (function vibrateLoop() {
-        if (!playing) return;
+        if (!alarmVibrating) return;
         navigator.vibrate([500, 200, 500, 200, 500]);
         setTimeout(vibrateLoop, 2000);
       })();
@@ -762,9 +767,8 @@ function playAlarmSound() {
 
 function stopAlarm() {
   document.getElementById('alarmOverlay').classList.remove('active');
-  if (alarmInterval) { clearInterval(alarmInterval); alarmInterval = null; }
-  if (alarmOscillator) { alarmOscillator.stop(); alarmOscillator = null; }
-  if (alarmAudioCtx) { alarmAudioCtx.close().catch(()=>{}); alarmAudioCtx = null; }
+  if (alarmAudio) { alarmAudio.pause(); alarmAudio.currentTime = 0; alarmAudio = null; }
+  alarmVibrating = false;
   if (navigator.vibrate) navigator.vibrate(0);
 }
 
