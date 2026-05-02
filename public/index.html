@@ -836,12 +836,18 @@ const alarmParam = urlParams.get('alarm');
 if (alarmParam) {
   try {
     const data = JSON.parse(alarmParam);
-    // Small delay to let AudioContext work after user gesture
     setTimeout(() => showAlarm(data.title, data.body), 500);
-    // Clean URL
     history.replaceState(null, '', '/');
   } catch(e) {}
 }
+
+// When app becomes visible (user tapped notification or switched to app), stop server burst
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    // Always tell server to stop any active burst when user opens the app
+    apiFetch('/api/stop-alarm', { method: 'POST', body: JSON.stringify({}) }).catch(() => {});
+  }
+});
 </script>
 </body>
 </html>
