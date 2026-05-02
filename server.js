@@ -40,7 +40,7 @@ app.use('/api', requireKey);
 // ── Send push with retry (max 2 retries) ───────────────────────────────
 async function sendPush(playerId, title, body, attempt = 0) {
   const { data: row } = await supabase
-    .from('push_subscriptions')
+    .from('agenda_push_subscriptions')
     .select('subscription')
     .eq('player_id', playerId)
     .single();
@@ -59,7 +59,7 @@ async function sendPush(playerId, title, body, attempt = 0) {
 
     // Subscription expired — remove it
     if (e.statusCode === 410 || e.statusCode === 404) {
-      await supabase.from('push_subscriptions').delete().eq('player_id', playerId);
+      await supabase.from('agenda_push_subscriptions').delete().eq('player_id', playerId);
       return false;
     }
 
@@ -80,7 +80,7 @@ async function pollAndFire() {
 
     // Get due notifications
     const { data: due, error } = await supabase
-      .from('scheduled_notifications')
+      .from('agenda_scheduled_notifications')
       .select('*')
       .eq('fired', false)
       .lte('fire_at', now)
@@ -93,7 +93,7 @@ async function pollAndFire() {
       console.log(`Firing: "${n.title}" for ${n.player_id}`);
       const ok = await sendPush(n.player_id, n.title, n.body);
       await supabase
-        .from('scheduled_notifications')
+        .from('agenda_scheduled_notifications')
         .update({ fired: true, sent_ok: ok, retries: n.retries + (ok ? 0 : 1) })
         .eq('id', n.id);
     }
@@ -101,7 +101,7 @@ async function pollAndFire() {
     // Cleanup: delete fired notifications older than 2 days
     if (due.length > 0) {
       await supabase
-        .from('scheduled_notifications')
+        .from('agenda_scheduled_notifications')
         .delete()
         .eq('fired', true)
         .lt('fire_at', now - 172800000);
@@ -109,7 +109,7 @@ async function pollAndFire() {
 
     // Calculate time until next notification
     const { data: nextRow } = await supabase
-      .from('scheduled_notifications')
+      .from('agenda_scheduled_notifications')
       .select('fire_at')
       .eq('fired', false)
       .order('fire_at', { ascending: true })
@@ -152,7 +152,7 @@ app.post('/api/subscribe', async (req, res) => {
     return res.status(400).json({ error: 'Missing playerId or invalid subscription' });
 
   const { error } = await supabase
-    .from('push_subscriptions')
+    .from('agenda_push_subscriptions')
     .upsert({ player_id: playerId, subscription, updated_at: new Date().toISOString() },
              { onConflict: 'player_id' });
 
@@ -175,14 +175,14 @@ app.post('/api/schedule', async (req, res) => {
   // Deduplicate: remove existing with same eventId + remIndex
   if (eventId != null && remIndex != null) {
     await supabase
-      .from('scheduled_notifications')
+      .from('agenda_scheduled_notifications')
       .delete()
       .eq('event_id', eventId)
       .eq('rem_index', remIndex);
   }
 
   const { error } = await supabase
-    .from('scheduled_notifications')
+    .from('agenda_scheduled_notifications')
     .insert({
       id, player_id: playerId, title, body,
       fire_at: fireMs, event_id: eventId || null,
@@ -197,7 +197,7 @@ app.post('/api/schedule', async (req, res) => {
 // Cancel all notifications for an event
 app.delete('/api/cancel/:eventId', async (req, res) => {
   const { data, error } = await supabase
-    .from('scheduled_notifications')
+    .from('agenda_scheduled_notifications')
     .delete()
     .eq('event_id', req.params.eventId)
     .select('id');
@@ -212,7 +212,7 @@ app.post('/api/test', async (req, res) => {
   if (!playerId) return res.status(400).json({ error: 'Missing playerId' });
 
   const { data } = await supabase
-    .from('push_subscriptions')
+    .from('agenda_push_subscriptions')
     .select('player_id')
     .eq('player_id', playerId)
     .single();
@@ -227,10 +227,10 @@ app.get('/api/health', async (req, res) => {
   const now = Date.now();
 
   const [subsResult, pendingResult, totalResult, nextResult] = await Promise.all([
-    supabase.from('push_subscriptions').select('player_id', { count: 'exact', head: true }),
-    supabase.from('scheduled_notifications').select('id', { count: 'exact', head: true }).eq('fired', false).gt('fire_at', 0),
-    supabase.from('scheduled_notifications').select('id', { count: 'exact', head: true }),
-    supabase.from('scheduled_notifications').select('fire_at, title').eq('fired', false).order('fire_at', { ascending: true }).limit(1).single()
+    supabase.from('agenda_push_subscriptions').select('player_id', { count: 'exact', head: true }),
+    supabase.from('agenda_scheduled_notifications').select('id', { count: 'exact', head: true }).eq('fired', false).gt('fire_at', 0),
+    supabase.from('agenda_scheduled_notifications').select('id', { count: 'exact', head: true }),
+    supabase.from('agenda_scheduled_notifications').select('fire_at, title').eq('fired', false).order('fire_at', { ascending: true }).limit(1).single()
   ]);
 
   res.json({
@@ -252,8 +252,8 @@ app.get('/api/status/:playerId', async (req, res) => {
   const pid = req.params.playerId;
 
   const [subResult, pendingResult] = await Promise.all([
-    supabase.from('push_subscriptions').select('player_id').eq('player_id', pid).single(),
-    supabase.from('scheduled_notifications').select('*').eq('player_id', pid).eq('fired', false).order('fire_at', { ascending: true })
+    supabase.from('agenda_push_subscriptions').select('player_id').eq('player_id', pid).single(),
+    supabase.from('agenda_scheduled_notifications').select('*').eq('player_id', pid).eq('fired', false).order('fire_at', { ascending: true })
   ]);
 
   res.json({
