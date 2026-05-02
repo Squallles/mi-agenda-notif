@@ -678,7 +678,46 @@ function deleteEvent(id) {
   }
   saveEvents(); renderCalendar(); toast('Evento eliminado');
 }
-function saveEvents() { localStorage.setItem('agenda_events', JSON.stringify(events)); }
+function saveEvents() {
+  localStorage.setItem('agenda_events', JSON.stringify(events));
+  syncToCloud();
+}
+
+let syncTimer = null;
+function syncToCloud() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    apiFetch('/api/events/sync', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, events })
+    }).then(() => console.log('Synced to cloud'))
+      .catch(e => console.warn('Sync failed:', e));
+  }, 2000); // Debounce 2s
+}
+
+async function restoreFromCloud() {
+  try {
+    const res = await apiFetch('/api/events/' + playerId);
+    const data = await res.json();
+    if (!data.ok || !data.events.length) return;
+    const localCount = events.length;
+    if (localCount === 0 && data.events.length > 0) {
+      // Local empty, restore from cloud
+      events = data.events;
+      localStorage.setItem('agenda_events', JSON.stringify(events));
+      renderCalendar();
+      toast(`${data.events.length} eventos restaurados desde la nube`, 'success');
+    } else if (data.events.length > localCount) {
+      // Cloud has more events — ask user
+      if (confirm(`Tienes ${localCount} eventos local y ${data.events.length} en la nube. ¿Restaurar desde la nube?`)) {
+        events = data.events;
+        localStorage.setItem('agenda_events', JSON.stringify(events));
+        renderCalendar();
+        toast('Eventos restaurados', 'success');
+      }
+    }
+  } catch (e) { console.warn('Restore failed:', e); }
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 function fmtDate(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
@@ -1012,7 +1051,7 @@ function importICS(input) {
 
 // ── Init ────────────────────────────────────────────────────────────────
 document.getElementById('modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
-renderCalHeader(); renderCalendar(); initNotifications();
+renderCalHeader(); renderCalendar(); initNotifications(); restoreFromCloud();
 
 // Check if opened from alarm (app was closed)
 const urlParams = new URLSearchParams(window.location.search);

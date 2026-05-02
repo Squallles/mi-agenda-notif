@@ -318,6 +318,74 @@ app.get('/api/status/:playerId', async (req, res) => {
   });
 });
 
+// ── Events backup/sync ──────────────────────────────────────────────────
+
+// Save all events (full replace for a player)
+app.post('/api/events/sync', async (req, res) => {
+  const { playerId, events } = req.body;
+  if (!playerId || !Array.isArray(events))
+    return res.status(400).json({ error: 'Missing playerId or events array' });
+
+  // Delete old events for this player
+  await supabase.from('agenda_events').delete().eq('player_id', playerId);
+
+  // Insert all current events
+  if (events.length > 0) {
+    const now = Date.now();
+    const rows = events.map(ev => ({
+      id: ev.id,
+      player_id: playerId,
+      title: ev.title,
+      date: ev.date,
+      start_time: ev.start,
+      end_time: ev.end || null,
+      notes: ev.notes || null,
+      color: ev.color || 'orange',
+      reminders: ev.reminders || [60, '9am', 1440],
+      repeat: ev.repeat || null,
+      repeat_group_id: ev.repeatGroupId || null,
+      updated_at: now,
+      created_at: ev.createdAt || now
+    }));
+
+    // Insert in batches of 100
+    for (let i = 0; i < rows.length; i += 100) {
+      const batch = rows.slice(i, i + 100);
+      const { error } = await supabase.from('agenda_events').insert(batch);
+      if (error) { console.error('Sync insert error:', error.message); return res.status(500).json({ error: error.message }); }
+    }
+  }
+
+  console.log(`Synced ${events.length} events for ${playerId}`);
+  res.json({ ok: true, count: events.length });
+});
+
+// Get all events for a player (restore)
+app.get('/api/events/:playerId', async (req, res) => {
+  const { data, error } = await supabase
+    .from('agenda_events')
+    .select('*')
+    .eq('player_id', req.params.playerId)
+    .order('date', { ascending: true });
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  const events = (data || []).map(row => ({
+    id: row.id,
+    title: row.title,
+    date: row.date,
+    start: row.start_time,
+    end: row.end_time || '',
+    notes: row.notes || '',
+    color: row.color,
+    reminders: row.reminders,
+    repeat: row.repeat || '',
+    repeatGroupId: row.repeat_group_id || null
+  }));
+
+  res.json({ ok: true, events });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Mi Agenda notif server on port ${PORT}`);
