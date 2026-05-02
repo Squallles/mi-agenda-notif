@@ -3,3 +3,4 @@ subscriptions.json
 notifs.json
 .DS_Store
 .env
+supabase/.temp/
