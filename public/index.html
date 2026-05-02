@@ -174,6 +174,17 @@ body{min-height:100dvh}
 .toast.error{background:#c62828}
 .toast.success{background:#2e7d32}
 
+/* ── Alarm overlay ── */
+.alarm-overlay{position:fixed;inset:0;background:linear-gradient(135deg,#1a1410 0%,#2d1f15 100%);z-index:300;display:none;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:40px}
+.alarm-overlay.active{display:flex}
+.alarm-icon{width:100px;height:100px;border-radius:50%;background:var(--accent);display:grid;place-items:center;animation:alarm-pulse 1s ease-in-out infinite;box-shadow:0 0 40px #f05a2860}
+.alarm-icon svg{width:48px;height:48px;color:#fff}
+@keyframes alarm-pulse{0%,100%{transform:scale(1);box-shadow:0 0 40px #f05a2860}50%{transform:scale(1.12);box-shadow:0 0 80px #f05a2880}}
+.alarm-title{color:#fff;font-size:1.5rem;font-weight:800;text-align:center}
+.alarm-body{color:#ffffff90;font-size:1rem;text-align:center}
+.alarm-stop{margin-top:20px;padding:16px 60px;border-radius:50px;border:none;background:#fff;color:var(--dark);font-size:1.1rem;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 20px #ffffff30;transition:transform .2s}
+.alarm-stop:active{transform:scale(.95)}
+
 /* ── Animations ── */
 @keyframes slideDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
@@ -271,6 +282,16 @@ body{min-height:100dvh}
     <button onclick="closeSearch()">Cerrar</button>
   </div>
   <div class="search-results" id="searchResults"></div>
+</div>
+
+<!-- Alarm Overlay -->
+<div class="alarm-overlay" id="alarmOverlay">
+  <div class="alarm-icon">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/><path d="M2 2l2.5 2.5M22 2l-2.5 2.5"/></svg>
+  </div>
+  <div class="alarm-title" id="alarmTitle">Recordatorio</div>
+  <div class="alarm-body" id="alarmBody"></div>
+  <button class="alarm-stop" onclick="stopAlarm()">Parar</button>
 </div>
 
 <!-- Event Modal -->
@@ -705,9 +726,82 @@ function startQuickVoice() {
   // NO timer inicial — solo empieza el timer cuando el usuario habla
 }
 
+// ── Alarm sound + overlay ───────────────────────────────────────────────
+let alarmAudioCtx = null;
+let alarmOscillator = null;
+let alarmInterval = null;
+
+function playAlarmSound() {
+  try {
+    alarmAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let playing = true;
+
+    function beep() {
+      if (!playing || !alarmAudioCtx) return;
+      const osc = alarmAudioCtx.createOscillator();
+      const gain = alarmAudioCtx.createGain();
+      osc.connect(gain); gain.connect(alarmAudioCtx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'square';
+      gain.gain.setValueAtTime(0.3, alarmAudioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, alarmAudioCtx.currentTime + 0.5);
+      osc.start(); osc.stop(alarmAudioCtx.currentTime + 0.5);
+    }
+
+    beep();
+    alarmInterval = setInterval(beep, 800);
+    alarmOscillator = { stop: () => { playing = false; } };
+
+    // Vibrate pattern repeating
+    if (navigator.vibrate) {
+      (function vibrateLoop() {
+        if (!playing) return;
+        navigator.vibrate([500, 200, 500, 200, 500]);
+        setTimeout(vibrateLoop, 2000);
+      })();
+    }
+  } catch(e) { console.error('Alarm sound error:', e); }
+}
+
+function stopAlarm() {
+  document.getElementById('alarmOverlay').classList.remove('active');
+  if (alarmInterval) { clearInterval(alarmInterval); alarmInterval = null; }
+  if (alarmOscillator) { alarmOscillator.stop(); alarmOscillator = null; }
+  if (alarmAudioCtx) { alarmAudioCtx.close().catch(()=>{}); alarmAudioCtx = null; }
+  if (navigator.vibrate) navigator.vibrate(0);
+}
+
+function showAlarm(title, body) {
+  document.getElementById('alarmTitle').textContent = title || 'Recordatorio';
+  document.getElementById('alarmBody').textContent = body || '';
+  document.getElementById('alarmOverlay').classList.add('active');
+  playAlarmSound();
+}
+
+// Listen for messages from Service Worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data.type === 'ALARM') showAlarm(e.data.title, e.data.body);
+    if (e.data.type === 'STOP_ALARM') stopAlarm();
+  });
+}
+
 // ── Init ────────────────────────────────────────────────────────────────
 document.getElementById('modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
 renderCalHeader(); renderCalendar(); initNotifications();
+
+// Check if opened from alarm (app was closed)
+const urlParams = new URLSearchParams(window.location.search);
+const alarmParam = urlParams.get('alarm');
+if (alarmParam) {
+  try {
+    const data = JSON.parse(alarmParam);
+    // Small delay to let AudioContext work after user gesture
+    setTimeout(() => showAlarm(data.title, data.body), 500);
+    // Clean URL
+    history.replaceState(null, '', '/');
+  } catch(e) {}
+}
 </script>
 </body>
 </html>
