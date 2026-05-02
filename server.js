@@ -1,11 +1,13 @@
 const express = require('express');
 const cors    = require('cors');
 const webpush = require('web-push');
+const path    = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Config from env vars ────────────────────────────────────────────────
 const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY;

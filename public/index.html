@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<title>Mi Agenda</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;--surface3:#22222f;
+  --border:#2a2a3a;--border-light:#3a3a4f;
+  --text:#e8e8f0;--text-dim:#8888a0;--text-muted:#55556a;
+  --accent:#6366f1;--accent-glow:#818cf833;--accent-light:#a5b4fc;
+  --danger:#ef4444;--success:#22c55e;--warning:#f59e0b;
+  --radius:12px;--radius-sm:8px;
+}
+html{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+body{min-height:100dvh;position:relative}
+body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 30% 20%,#6366f108 0%,transparent 50%),radial-gradient(ellipse at 70% 80%,#a855f708 0%,transparent 50%);pointer-events:none;z-index:0}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+/* ── Layout ── */
+.app{max-width:480px;margin:0 auto;padding:0 16px 100px;position:relative;z-index:1}
+.header{padding:20px 0 16px;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-family:'Playfair Display',serif;font-size:1.7rem;font-weight:800;background:linear-gradient(135deg,var(--text),var(--accent-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header-actions{display:flex;gap:8px}
+.icon-btn{width:40px;height:40px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface);color:var(--text-dim);display:grid;place-items:center;cursor:pointer;transition:all .2s}
+.icon-btn:hover,.icon-btn.active{border-color:var(--accent);color:var(--accent);background:var(--accent-glow)}
+.icon-btn svg{width:18px;height:18px}
+
+/* ── Notif banner ── */
+.notif-banner{background:linear-gradient(135deg,var(--surface2),var(--surface3));border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:all .3s;animation:slideDown .4s ease}
+.notif-banner:hover{border-color:var(--accent)}
+.notif-banner.subscribed{border-color:var(--success);background:linear-gradient(135deg,#22c55e08,#22c55e04)}
+.notif-banner .dot{width:8px;height:8px;border-radius:50%;background:var(--warning);flex-shrink:0;animation:pulse 2s infinite}
+.notif-banner.subscribed .dot{background:var(--success);animation:none}
+.notif-banner p{font-size:.82rem;color:var(--text-dim);line-height:1.4}
+.notif-banner p strong{color:var(--text);font-weight:500}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes slideDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Month Nav ── */
+.month-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.month-nav h2{font-size:1.1rem;font-weight:600;letter-spacing:-.02em}
+.month-nav h2 span{color:var(--text-muted);font-weight:400;margin-left:6px}
+.nav-arrows{display:flex;gap:4px}
+.nav-arrows button{width:34px;height:34px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface);color:var(--text-dim);cursor:pointer;display:grid;place-items:center;transition:all .2s}
+.nav-arrows button:hover{border-color:var(--accent);color:var(--text)}
+.nav-arrows button svg{width:16px;height:16px}
+
+/* ── Calendar Grid ── */
+.cal-header{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:6px}
+.cal-header span{text-align:center;font-size:.7rem;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;padding:4px 0}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-day{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:var(--radius-sm);cursor:pointer;transition:all .15s;position:relative;font-size:.88rem;gap:3px}
+.cal-day:hover{background:var(--surface2)}
+.cal-day.other{color:var(--text-muted);opacity:.4}
+.cal-day.today{background:var(--surface2);border:1px solid var(--border-light);font-weight:600}
+.cal-day.selected{background:var(--accent);color:#fff;font-weight:600}
+.cal-day.selected .day-dots span{background:#fff}
+.cal-day.has-events .day-dots span{background:var(--accent)}
+.day-dots{display:flex;gap:3px;height:4px}
+.day-dots span{width:4px;height:4px;border-radius:50%;background:var(--text-muted)}
+
+/* ── Day Detail ── */
+.day-detail{margin-top:20px;animation:slideDown .3s ease}
+.day-detail-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+.day-detail-header h3{font-size:1rem;font-weight:600}
+.day-detail-header h3 span{color:var(--text-dim);font-weight:400;font-size:.85rem;margin-left:6px}
+.add-btn{height:32px;padding:0 14px;border-radius:20px;border:none;background:var(--accent);color:#fff;font-size:.78rem;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .2s;font-family:inherit}
+.add-btn:hover{filter:brightness(1.15);transform:scale(1.03)}
+.add-btn svg{width:14px;height:14px}
+
+/* ── Event Cards ── */
+.events-list{display:flex;flex-direction:column;gap:8px}
+.event-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;gap:12px;transition:all .2s;animation:slideDown .3s ease}
+.event-card:hover{border-color:var(--border-light);transform:translateY(-1px)}
+.event-time{display:flex;flex-direction:column;align-items:center;min-width:44px;padding-top:2px}
+.event-time .hour{font-size:.85rem;font-weight:600;color:var(--accent-light)}
+.event-time .ampm{font-size:.65rem;color:var(--text-muted);margin-top:1px}
+.event-bar{width:3px;border-radius:3px;align-self:stretch;flex-shrink:0}
+.event-info{flex:1;min-width:0}
+.event-info h4{font-size:.88rem;font-weight:500;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.event-info p{font-size:.75rem;color:var(--text-dim);line-height:1.3}
+.event-actions{display:flex;flex-direction:column;gap:4px}
+.event-actions button{width:28px;height:28px;border-radius:6px;border:1px solid transparent;background:transparent;color:var(--text-muted);cursor:pointer;display:grid;place-items:center;transition:all .15s}
+.event-actions button:hover{background:var(--surface2);color:var(--text)}
+.event-actions button.del:hover{color:var(--danger);border-color:var(--danger)}
+.event-actions button svg{width:14px;height:14px}
+.empty-day{text-align:center;padding:40px 20px;color:var(--text-muted);font-size:.85rem}
+.empty-day svg{width:40px;height:40px;margin-bottom:12px;opacity:.3}
+
+/* ── Modal ── */
+.modal-overlay{position:fixed;inset:0;background:#0008;backdrop-filter:blur(8px);z-index:100;display:none;align-items:flex-end;justify-content:center;animation:fadeIn .2s}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:24px 20px 32px;animation:slideUp .3s ease}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:4px;margin:0 auto 20px}
+.modal h2{font-family:'Playfair Display',serif;font-size:1.2rem;margin-bottom:20px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:.75rem;font-weight:500;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+.field input,.field select,.field textarea{width:100%;padding:10px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.88rem;font-family:inherit;transition:border-color .2s;outline:none}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent)}
+.field textarea{resize:vertical;min-height:60px}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.reminder-toggles{display:flex;flex-wrap:wrap;gap:6px}
+.rem-chip{padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);font-size:.75rem;cursor:pointer;transition:all .2s;font-family:inherit}
+.rem-chip:hover{border-color:var(--accent)}
+.rem-chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.modal-actions{display:flex;gap:10px;margin-top:24px}
+.modal-actions button{flex:1;padding:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.88rem;font-weight:500;cursor:pointer;font-family:inherit;transition:all .2s}
+.modal-actions .primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.modal-actions .primary:hover{filter:brightness(1.1)}
+.modal-actions button:first-child:hover{background:var(--surface3)}
+
+/* ── Colors ── */
+.c-indigo{background:#6366f1}.c-rose{background:#f43f5e}.c-amber{background:#f59e0b}
+.c-emerald{background:#10b981}.c-cyan{background:#06b6d4}.c-purple{background:#a855f7}
+.c-colors{display:flex;gap:8px;flex-wrap:wrap}
+.c-dot{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .15s;opacity:.7}
+.c-dot:hover{opacity:1;transform:scale(1.1)}
+.c-dot.active{border-color:#fff;opacity:1;transform:scale(1.15)}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;background:var(--surface3);border:1px solid var(--border);color:var(--text);font-size:.82rem;z-index:200;animation:slideDown .3s ease;white-space:nowrap}
+.toast.error{border-color:var(--danger);color:var(--danger)}
+.toast.success{border-color:var(--success);color:var(--success)}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Header -->
+  <div class="header">
+    <h1>Mi Agenda</h1>
+    <div class="header-actions">
+      <button class="icon-btn" onclick="goToday()" title="Hoy">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      </button>
+      <button class="icon-btn" id="notifBtn" onclick="toggleNotifications()" title="Notificaciones">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Notification Banner -->
+  <div class="notif-banner" id="notifBanner" onclick="toggleNotifications()">
+    <div class="dot"></div>
+    <p><strong>Notificaciones desactivadas</strong><br>Toca para activar recordatorios push</p>
+  </div>
+
+  <!-- Month Navigation -->
+  <div class="month-nav">
+    <h2 id="monthTitle"></h2>
+    <div class="nav-arrows">
+      <button onclick="changeMonth(-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <button onclick="changeMonth(1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+    </div>
+  </div>
+
+  <!-- Calendar -->
+  <div class="cal-header" id="calHeader"></div>
+  <div class="cal-grid" id="calGrid"></div>
+
+  <!-- Day Detail -->
+  <div class="day-detail" id="dayDetail"></div>
+</div>
+
+<!-- Event Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2 id="modalTitle">Nuevo evento</h2>
+    <form id="eventForm" onsubmit="saveEvent(event)">
+      <input type="hidden" id="editId">
+      <div class="field">
+        <label>Titulo</label>
+        <input type="text" id="evTitle" required placeholder="Reunión, cita, tarea..." autocomplete="off">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Hora inicio</label>
+          <input type="time" id="evStart" value="09:00" required>
+        </div>
+        <div class="field">
+          <label>Hora fin</label>
+          <input type="time" id="evEnd" value="10:00">
+        </div>
+      </div>
+      <div class="field">
+        <label>Notas</label>
+        <textarea id="evNotes" placeholder="Opcional..."></textarea>
+      </div>
+      <div class="field">
+        <label>Color</label>
+        <div class="c-colors">
+          <div class="c-dot c-indigo active" data-color="indigo" onclick="pickColor(this)"></div>
+          <div class="c-dot c-rose" data-color="rose" onclick="pickColor(this)"></div>
+          <div class="c-dot c-amber" data-color="amber" onclick="pickColor(this)"></div>
+          <div class="c-dot c-emerald" data-color="emerald" onclick="pickColor(this)"></div>
+          <div class="c-dot c-cyan" data-color="cyan" onclick="pickColor(this)"></div>
+          <div class="c-dot c-purple" data-color="purple" onclick="pickColor(this)"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Recordatorios</label>
+        <div class="reminder-toggles">
+          <button type="button" class="rem-chip" data-min="0" onclick="toggleRem(this)">En el momento</button>
+          <button type="button" class="rem-chip active" data-min="5" onclick="toggleRem(this)">5 min</button>
+          <button type="button" class="rem-chip" data-min="15" onclick="toggleRem(this)">15 min</button>
+          <button type="button" class="rem-chip" data-min="30" onclick="toggleRem(this)">30 min</button>
+          <button type="button" class="rem-chip" data-min="60" onclick="toggleRem(this)">1 hora</button>
+          <button type="button" class="rem-chip" data-min="1440" onclick="toggleRem(this)">1 día</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────
+const API = '';
+const API_KEY = 'miagenda-notif-sk-ad6eec2c9dcdcd64c58b7c5bda05d431';
+const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const DAYS = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const COLORS = {indigo:'#6366f1',rose:'#f43f5e',amber:'#f59e0b',emerald:'#10b981',cyan:'#06b6d4',purple:'#a855f7'};
+
+// ── State ───────────────────────────────────────────────────────────────
+let currentMonth = new Date().getMonth();
+let currentYear = new Date().getFullYear();
+let selectedDate = new Date();
+let events = JSON.parse(localStorage.getItem('agenda_events') || '[]');
+let playerId = localStorage.getItem('agenda_player_id');
+let isSubscribed = false;
+let selectedColor = 'indigo';
+
+if (!playerId) {
+  playerId = crypto.randomUUID();
+  localStorage.setItem('agenda_player_id', playerId);
+}
+
+// ── API helpers ─────────────────────────────────────────────────────────
+function apiFetch(path, opts = {}) {
+  opts.headers = { ...opts.headers, 'Content-Type': 'application/json', 'x-api-key': API_KEY };
+  return fetch(API + path, opts);
+}
+
+// ── Push Notifications ──────────────────────────────────────────────────
+async function initNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      isSubscribed = true;
+      await registerSubscription(sub);
+      updateNotifUI();
+    }
+  } catch (e) { console.error('SW init error:', e); }
+}
+
+async function toggleNotifications() {
+  if (!('PushManager' in window)) return toast('Tu navegador no soporta notificaciones push', 'error');
+  if (isSubscribed) return toast('Notificaciones ya activadas', 'success');
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const res = await apiFetch('/api/vapid-public');
+    const { publicKey } = await res.json();
+
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    });
+    await registerSubscription(sub);
+    isSubscribed = true;
+    updateNotifUI();
+    toast('Notificaciones activadas', 'success');
+
+    // Re-schedule all future reminders
+    events.forEach(ev => scheduleReminders(ev));
+  } catch (e) {
+    console.error('Subscribe error:', e);
+    toast('Error al activar notificaciones', 'error');
+  }
+}
+
+async function registerSubscription(sub) {
+  try {
+    await apiFetch('/api/subscribe', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, subscription: sub })
+    });
+  } catch (e) { console.error('Register error:', e); }
+}
+
+function updateNotifUI() {
+  const banner = document.getElementById('notifBanner');
+  const btn = document.getElementById('notifBtn');
+  if (isSubscribed) {
+    banner.classList.add('subscribed');
+    banner.querySelector('p').innerHTML = '<strong>Notificaciones activadas</strong><br>Recibirás recordatorios push';
+    btn.classList.add('active');
+  }
+}
+
+async function scheduleReminders(ev) {
+  if (!isSubscribed) return;
+  const evDate = new Date(ev.date + 'T' + ev.start);
+  const reminders = ev.reminders || [5];
+
+  for (let i = 0; i < reminders.length; i++) {
+    const min = reminders[i];
+    const fireAt = new Date(evDate.getTime() - min * 60000);
+    if (fireAt <= new Date()) continue;
+
+    const label = min === 0 ? 'Ahora' : min < 60 ? `En ${min} min` : min === 60 ? 'En 1 hora' : 'Mañana';
+    try {
+      await apiFetch('/api/schedule', {
+        method: 'POST',
+        body: JSON.stringify({
+          playerId, eventId: ev.id, remIndex: i,
+          title: ev.title,
+          body: `${label} — ${ev.start}`,
+          fireAt: fireAt.toISOString()
+        })
+      });
+    } catch (e) { console.error('Schedule error:', e); }
+  }
+}
+
+async function cancelReminders(eventId) {
+  try { await apiFetch('/api/cancel/' + eventId, { method: 'DELETE' }); } catch (e) {}
+}
+
+// ── Calendar Rendering ──────────────────────────────────────────────────
+function renderCalHeader() {
+  document.getElementById('calHeader').innerHTML = DAYS.map(d => `<span>${d}</span>`).join('');
+}
+
+function renderCalendar() {
+  const title = document.getElementById('monthTitle');
+  title.innerHTML = `${MONTHS[currentMonth]} <span>${currentYear}</span>`;
+
+  const first = new Date(currentYear, currentMonth, 1);
+  const last = new Date(currentYear, currentMonth + 1, 0);
+  let startDay = first.getDay() - 1;
+  if (startDay < 0) startDay = 6;
+
+  const today = new Date();
+  const todayStr = fmtDate(today);
+  const selStr = fmtDate(selectedDate);
+
+  let html = '';
+
+  // Previous month days
+  const prevLast = new Date(currentYear, currentMonth, 0);
+  for (let i = startDay - 1; i >= 0; i--) {
+    const d = prevLast.getDate() - i;
+    html += `<div class="cal-day other">${d}</div>`;
+  }
+
+  // Current month days
+  for (let d = 1; d <= last.getDate(); d++) {
+    const dateStr = `${currentYear}-${String(currentMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday = dateStr === todayStr;
+    const isSel = dateStr === selStr;
+    const dayEvents = events.filter(e => e.date === dateStr);
+    const dots = dayEvents.length > 0
+      ? `<div class="day-dots">${dayEvents.slice(0,3).map(e=>`<span style="background:${COLORS[e.color]||COLORS.indigo}"></span>`).join('')}</div>`
+      : '<div class="day-dots"></div>';
+
+    html += `<div class="cal-day${isToday?' today':''}${isSel?' selected':''}${dayEvents.length?' has-events':''}" onclick="selectDate('${dateStr}')">${d}${dots}</div>`;
+  }
+
+  // Next month days
+  const totalCells = startDay + last.getDate();
+  const remaining = (7 - totalCells % 7) % 7;
+  for (let d = 1; d <= remaining; d++) {
+    html += `<div class="cal-day other">${d}</div>`;
+  }
+
+  document.getElementById('calGrid').innerHTML = html;
+  renderDayDetail();
+}
+
+function renderDayDetail() {
+  const selStr = fmtDate(selectedDate);
+  const dayEvents = events.filter(e => e.date === selStr).sort((a,b) => a.start.localeCompare(b.start));
+  const dayName = selectedDate.toLocaleDateString('es-ES', { weekday: 'long' });
+  const dayNum = selectedDate.getDate();
+  const monthName = MONTHS[selectedDate.getMonth()];
+
+  let html = `<div class="day-detail-header">
+    <h3>${capitalize(dayName)} ${dayNum} <span>${monthName}</span></h3>
+    <button class="add-btn" onclick="openModal()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Nuevo
+    </button>
+  </div>`;
+
+  if (dayEvents.length === 0) {
+    html += `<div class="empty-day">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
+      <p>Sin eventos este día</p>
+    </div>`;
+  } else {
+    html += '<div class="events-list">';
+    dayEvents.forEach(ev => {
+      const [h, m] = ev.start.split(':');
+      const hour = parseInt(h);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+      const color = COLORS[ev.color] || COLORS.indigo;
+
+      html += `<div class="event-card">
+        <div class="event-time"><span class="hour">${h12}:${m}</span><span class="ampm">${ampm}</span></div>
+        <div class="event-bar" style="background:${color}"></div>
+        <div class="event-info">
+          <h4>${esc(ev.title)}</h4>
+          <p>${ev.start}${ev.end?' — '+ev.end:''}${ev.notes?' · '+esc(ev.notes):''}</p>
+        </div>
+        <div class="event-actions">
+          <button onclick="editEvent('${ev.id}')" title="Editar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button>
+          <button class="del" onclick="deleteEvent('${ev.id}')" title="Eliminar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  document.getElementById('dayDetail').innerHTML = html;
+}
+
+// ── Navigation ──────────────────────────────────────────────────────────
+function changeMonth(dir) {
+  currentMonth += dir;
+  if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+  if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+  renderCalendar();
+}
+
+function selectDate(dateStr) {
+  selectedDate = new Date(dateStr + 'T12:00:00');
+  currentMonth = selectedDate.getMonth();
+  currentYear = selectedDate.getFullYear();
+  renderCalendar();
+}
+
+function goToday() {
+  selectedDate = new Date();
+  currentMonth = selectedDate.getMonth();
+  currentYear = selectedDate.getFullYear();
+  renderCalendar();
+}
+
+// ── Modal ───────────────────────────────────────────────────────────────
+function openModal(ev) {
+  const modal = document.getElementById('modal');
+  const form = document.getElementById('eventForm');
+  document.getElementById('modalTitle').textContent = ev ? 'Editar evento' : 'Nuevo evento';
+  document.getElementById('editId').value = ev ? ev.id : '';
+  document.getElementById('evTitle').value = ev ? ev.title : '';
+  document.getElementById('evStart').value = ev ? ev.start : '09:00';
+  document.getElementById('evEnd').value = ev ? ev.end : '10:00';
+  document.getElementById('evNotes').value = ev ? ev.notes : '';
+
+  selectedColor = ev ? ev.color : 'indigo';
+  document.querySelectorAll('.c-dot').forEach(d => d.classList.toggle('active', d.dataset.color === selectedColor));
+
+  const rems = ev ? ev.reminders : [5];
+  document.querySelectorAll('.rem-chip').forEach(c => c.classList.toggle('active', rems.includes(parseInt(c.dataset.min))));
+
+  modal.classList.add('open');
+  setTimeout(() => document.getElementById('evTitle').focus(), 300);
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+}
+
+function pickColor(el) {
+  document.querySelectorAll('.c-dot').forEach(d => d.classList.remove('active'));
+  el.classList.add('active');
+  selectedColor = el.dataset.color;
+}
+
+function toggleRem(el) {
+  el.classList.toggle('active');
+}
+
+// ── Events CRUD ─────────────────────────────────────────────────────────
+function saveEvent(e) {
+  e.preventDefault();
+  const id = document.getElementById('editId').value || crypto.randomUUID();
+  const title = document.getElementById('evTitle').value.trim();
+  const start = document.getElementById('evStart').value;
+  const end = document.getElementById('evEnd').value;
+  const notes = document.getElementById('evNotes').value.trim();
+  const reminders = [...document.querySelectorAll('.rem-chip.active')].map(c => parseInt(c.dataset.min));
+  const date = fmtDate(selectedDate);
+
+  const isEdit = events.some(ev => ev.id === id);
+  if (isEdit) {
+    cancelReminders(id);
+    events = events.filter(ev => ev.id !== id);
+  }
+
+  const ev = { id, title, date, start, end, notes, color: selectedColor, reminders };
+  events.push(ev);
+  saveEvents();
+  scheduleReminders(ev);
+
+  closeModal();
+  renderCalendar();
+  toast(isEdit ? 'Evento actualizado' : 'Evento creado', 'success');
+}
+
+function editEvent(id) {
+  const ev = events.find(e => e.id === id);
+  if (ev) openModal(ev);
+}
+
+function deleteEvent(id) {
+  events = events.filter(e => e.id !== id);
+  saveEvents();
+  cancelReminders(id);
+  renderCalendar();
+  toast('Evento eliminado');
+}
+
+function saveEvents() {
+  localStorage.setItem('agenda_events', JSON.stringify(events));
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+function fmtDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+function toast(msg, type = '') {
+  const el = document.createElement('div');
+  el.className = 'toast' + (type ? ' ' + type : '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 2500);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// Close modal on overlay click
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+// ── Init ────────────────────────────────────────────────────────────────
+renderCalHeader();
+renderCalendar();
+initNotifications();
+</script>
+</body>
+</html>
