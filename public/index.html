@@ -135,6 +135,16 @@ body::before{content:'';position:fixed;top:-30%;left:-30%;width:160%;height:160%
 .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-size:.82rem;z-index:200;animation:slideDown .3s ease;white-space:nowrap;box-shadow:0 4px 16px #0002}
 .toast.error{border-color:var(--danger);color:var(--danger)}
 .toast.success{border-color:var(--success);color:var(--success)}
+
+/* ── Mic button ── */
+.input-mic{position:relative;display:flex;align-items:stretch}
+.input-mic input,.input-mic textarea{flex:1;padding-right:44px}
+.mic-btn{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:32px;height:32px;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;display:grid;place-items:center;transition:all .2s}
+.mic-btn:hover{color:var(--accent);background:var(--accent-glow)}
+.mic-btn.recording{color:#ef4444;background:#ef444418;animation:pulse-rec 1s infinite}
+.mic-btn svg{width:16px;height:16px}
+.input-mic textarea ~ .mic-btn{top:14px;transform:none}
+@keyframes pulse-rec{0%,100%{box-shadow:0 0 0 0 #ef444440}50%{box-shadow:0 0 0 8px #ef444400}}
 </style>
 </head>
 <body>
@@ -185,7 +195,12 @@ body::before{content:'';position:fixed;top:-30%;left:-30%;width:160%;height:160%
       <input type="hidden" id="editId">
       <div class="field">
         <label>Titulo</label>
-        <input type="text" id="evTitle" required placeholder="Reunión, cita, tarea..." autocomplete="off">
+        <div class="input-mic">
+          <input type="text" id="evTitle" required placeholder="Reunión, cita, tarea..." autocomplete="off">
+          <button type="button" class="mic-btn" onclick="startVoice('evTitle')" title="Dictar por voz">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+          </button>
+        </div>
       </div>
       <div class="field-row">
         <div class="field">
@@ -199,7 +214,12 @@ body::before{content:'';position:fixed;top:-30%;left:-30%;width:160%;height:160%
       </div>
       <div class="field">
         <label>Notas</label>
-        <textarea id="evNotes" placeholder="Opcional..."></textarea>
+        <div class="input-mic">
+          <textarea id="evNotes" placeholder="Opcional..."></textarea>
+          <button type="button" class="mic-btn" onclick="startVoice('evNotes')" title="Dictar por voz">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+          </button>
+        </div>
       </div>
       <div class="field">
         <label>Color</label>
@@ -568,6 +588,65 @@ function toast(msg, type = '') {
   document.body.appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 2500);
   setTimeout(() => el.remove(), 3000);
+}
+
+// ── Voice input (Web Speech API) ─────────────────────────────────────────
+let activeRecognition = null;
+
+function startVoice(targetId) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return toast('Tu navegador no soporta reconocimiento de voz', 'error');
+
+  // If already recording, stop
+  if (activeRecognition) {
+    activeRecognition.stop();
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'es-ES';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  activeRecognition = recognition;
+
+  const btn = document.querySelector(`#${targetId}`).parentElement.querySelector('.mic-btn');
+  btn.classList.add('recording');
+
+  const target = document.getElementById(targetId);
+  const existing = target.value;
+
+  recognition.onresult = (e) => {
+    let interim = '';
+    let final = '';
+    for (let i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        final += e.results[i][0].transcript;
+      } else {
+        interim += e.results[i][0].transcript;
+      }
+    }
+    const separator = existing.length > 0 && !existing.endsWith(' ') ? ' ' : '';
+    target.value = existing + separator + final + interim;
+  };
+
+  recognition.onend = () => {
+    btn.classList.remove('recording');
+    activeRecognition = null;
+    // Clean up: capitalize first letter of final value
+    if (target.value.length > 0) {
+      target.value = target.value.charAt(0).toUpperCase() + target.value.slice(1);
+    }
+  };
+
+  recognition.onerror = (e) => {
+    btn.classList.remove('recording');
+    activeRecognition = null;
+    if (e.error === 'not-allowed') toast('Permite acceso al micrófono', 'error');
+    else if (e.error !== 'aborted') toast('Error de voz: ' + e.error, 'error');
+  };
+
+  recognition.start();
+  toast('Escuchando... toca de nuevo para parar');
 }
 
 // Close modal on overlay click
