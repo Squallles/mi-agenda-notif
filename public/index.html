@@ -145,6 +145,18 @@ body::before{content:'';position:fixed;top:-30%;left:-30%;width:160%;height:160%
 .mic-btn svg{width:16px;height:16px}
 .input-mic textarea ~ .mic-btn{top:14px;transform:none}
 @keyframes pulse-rec{0%,100%{box-shadow:0 0 0 0 #ef444440}50%{box-shadow:0 0 0 8px #ef444400}}
+
+/* ── FAB Micrófono ── */
+.fab-mic{position:fixed;bottom:28px;right:24px;width:60px;height:60px;border-radius:50%;border:none;background:var(--accent);color:#fff;cursor:pointer;display:grid;place-items:center;z-index:50;box-shadow:0 4px 20px #4f46e540;transition:all .2s}
+.fab-mic:hover{transform:scale(1.08);box-shadow:0 6px 28px #4f46e560}
+.fab-mic:active{transform:scale(.95)}
+.fab-mic svg{width:26px;height:26px;z-index:2}
+.fab-mic.recording{background:#ef4444;box-shadow:0 4px 20px #ef444450}
+.fab-pulse{position:absolute;inset:0;border-radius:50%;background:#ef4444;opacity:0;z-index:1;pointer-events:none}
+.fab-mic.recording .fab-pulse{animation:fab-ring 1.5s ease-out infinite}
+@keyframes fab-ring{0%{transform:scale(1);opacity:.4}100%{transform:scale(1.8);opacity:0}}
+.fab-transcript{position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 18px;font-size:.88rem;color:var(--text);z-index:50;box-shadow:0 4px 20px #0002;max-width:calc(100vw - 40px);text-align:center;display:none;animation:slideDown .2s ease}
+.fab-transcript.visible{display:block}
 </style>
 </head>
 <body>
@@ -185,6 +197,13 @@ body::before{content:'';position:fixed;top:-30%;left:-30%;width:160%;height:160%
   <!-- Day Detail -->
   <div class="day-detail" id="dayDetail"></div>
 </div>
+
+<!-- FAB Micrófono -->
+<button class="fab-mic" id="fabMic" onclick="startQuickVoice()">
+  <svg id="fabMicIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+  <div class="fab-pulse" id="fabPulse"></div>
+</button>
+<div class="fab-transcript" id="fabTranscript"></div>
 
 <!-- Event Modal -->
 <div class="modal-overlay" id="modal">
@@ -596,12 +615,7 @@ let activeRecognition = null;
 function startVoice(targetId) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) return toast('Tu navegador no soporta reconocimiento de voz', 'error');
-
-  // If already recording, stop
-  if (activeRecognition) {
-    activeRecognition.stop();
-    return;
-  }
+  if (activeRecognition) { activeRecognition.stop(); return; }
 
   const recognition = new SpeechRecognition();
   recognition.lang = 'es-ES';
@@ -611,42 +625,101 @@ function startVoice(targetId) {
 
   const btn = document.querySelector(`#${targetId}`).parentElement.querySelector('.mic-btn');
   btn.classList.add('recording');
-
   const target = document.getElementById(targetId);
   const existing = target.value;
 
   recognition.onresult = (e) => {
-    let interim = '';
-    let final = '';
+    let interim = '', final = '';
     for (let i = 0; i < e.results.length; i++) {
-      if (e.results[i].isFinal) {
-        final += e.results[i][0].transcript;
-      } else {
-        interim += e.results[i][0].transcript;
-      }
+      if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
     }
-    const separator = existing.length > 0 && !existing.endsWith(' ') ? ' ' : '';
-    target.value = existing + separator + final + interim;
+    const sep = existing.length > 0 && !existing.endsWith(' ') ? ' ' : '';
+    target.value = existing + sep + final + interim;
+  };
+  recognition.onend = () => { btn.classList.remove('recording'); activeRecognition = null; if (target.value) target.value = target.value.charAt(0).toUpperCase() + target.value.slice(1); };
+  recognition.onerror = (e) => { btn.classList.remove('recording'); activeRecognition = null; if (e.error === 'not-allowed') toast('Permite acceso al micrófono', 'error'); else if (e.error !== 'aborted') toast('Error de voz: ' + e.error, 'error'); };
+  recognition.start();
+}
+
+// ── FAB: voz rápida desde pantalla principal ─────────────────────────────
+let fabRecognition = null;
+
+function startQuickVoice() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return toast('Tu navegador no soporta reconocimiento de voz', 'error');
+
+  const fab = document.getElementById('fabMic');
+  const transcript = document.getElementById('fabTranscript');
+
+  // If recording, stop
+  if (fabRecognition) { fabRecognition.stop(); return; }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'es-ES';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  fabRecognition = recognition;
+
+  fab.classList.add('recording');
+  transcript.classList.add('visible');
+  transcript.textContent = 'Escuchando...';
+
+  let finalText = '';
+
+  recognition.onresult = (e) => {
+    let interim = '';
+    finalText = '';
+    for (let i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    transcript.textContent = (finalText + interim) || 'Escuchando...';
   };
 
   recognition.onend = () => {
-    btn.classList.remove('recording');
-    activeRecognition = null;
-    // Clean up: capitalize first letter of final value
-    if (target.value.length > 0) {
-      target.value = target.value.charAt(0).toUpperCase() + target.value.slice(1);
+    fab.classList.remove('recording');
+    transcript.classList.remove('visible');
+    fabRecognition = null;
+
+    if (!finalText.trim()) return;
+
+    // Parse: try to extract time like "a las 10" "a las 15:30"
+    let title = finalText.trim();
+    let hour = '09:00';
+    const timeMatch = title.match(/\ba las?\s+(\d{1,2})(?::(\d{2}))?\b/i);
+    if (timeMatch) {
+      const h = timeMatch[1].padStart(2, '0');
+      const m = timeMatch[2] || '00';
+      hour = `${h}:${m}`;
+      title = title.replace(timeMatch[0], '').trim();
     }
+
+    // Clean up
+    title = title.replace(/^(anotar|apuntar|crear|añadir|poner)\s+/i, '');
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+    if (!title) return;
+
+    // Create event on selected date
+    const id = crypto.randomUUID();
+    const date = fmtDate(selectedDate);
+    const ev = { id, title, date, start: hour, end: '', notes: '', color: 'indigo', reminders: [5] };
+    events.push(ev);
+    saveEvents();
+    scheduleReminders(ev);
+    renderCalendar();
+    toast(`"${title}" creado a las ${hour}`, 'success');
   };
 
   recognition.onerror = (e) => {
-    btn.classList.remove('recording');
-    activeRecognition = null;
+    fab.classList.remove('recording');
+    transcript.classList.remove('visible');
+    fabRecognition = null;
     if (e.error === 'not-allowed') toast('Permite acceso al micrófono', 'error');
     else if (e.error !== 'aborted') toast('Error de voz: ' + e.error, 'error');
   };
 
   recognition.start();
-  toast('Escuchando... toca de nuevo para parar');
 }
 
 // Close modal on overlay click
