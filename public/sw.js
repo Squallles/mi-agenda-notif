@@ -28,13 +28,33 @@ self.addEventListener('push', (event) => {
   );
 });
 
+// Stop burst when notification is dismissed (swipe away)
+self.addEventListener('notificationclose', (event) => {
+  event.waitUntil(
+    fetch('/api/stop-alarm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': 'miagenda-notif-sk-ad6eec2c9dcdcd64c58b7c5bda05d431' },
+      body: JSON.stringify({})
+    }).catch(() => {})
+  );
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
-    self.clients.matchAll({ type: 'window' }).then(clients => {
-      clients.forEach(c => c.postMessage({ type: 'STOP_ALARM' }));
-      if (clients.length > 0) return clients[0].focus();
-      return self.clients.openWindow('/');
-    })
+    Promise.all([
+      // Stop burst on server
+      fetch('/api/stop-alarm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': 'miagenda-notif-sk-ad6eec2c9dcdcd64c58b7c5bda05d431' },
+        body: JSON.stringify({})
+      }).catch(() => {}),
+      // Stop alarm in open clients or open app
+      self.clients.matchAll({ type: 'window' }).then(clients => {
+        clients.forEach(c => c.postMessage({ type: 'STOP_ALARM' }));
+        if (clients.length > 0) return clients[0].focus();
+        return self.clients.openWindow('/');
+      })
+    ])
   );
 });
