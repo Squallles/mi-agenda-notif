@@ -711,6 +711,81 @@ function fmtTime(h, m, text) {
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 
+// ── Parse date from Spanish voice input ──────────────────────────────────
+const DAY_WORDS = {primero:1,uno:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,
+  once:11,doce:12,trece:13,catorce:14,quince:15,dieciséis:16,dieciseis:16,diecisiete:17,dieciocho:18,diecinueve:19,
+  veinte:20,veintiuno:21,veintiún:21,veintidós:22,veintidos:22,veintitrés:23,veintitres:23,veinticuatro:24,
+  veinticinco:25,veintiséis:26,veintiseis:26,veintisiete:27,veintiocho:28,veintinueve:29,treinta:30,
+  'treinta y uno':31};
+const MONTH_WORDS = {enero:0,febrero:1,marzo:2,abril:3,mayo:4,junio:5,julio:6,agosto:7,septiembre:8,septiem:8,octubre:9,noviembre:10,diciembre:11};
+const DOW_WORDS = {lunes:1,martes:2,miércoles:3,miercoles:3,jueves:4,viernes:5,sábado:6,sabado:6,domingo:0};
+
+function parseDate(text) {
+  const t = text.toLowerCase().normalize('NFD').replace(/[\u0301]/g, '');
+  const now = new Date();
+
+  // "hoy", "mañana", "pasado mañana"
+  if (/\bpasado\s+mañana\b/i.test(text.toLowerCase())) {
+    const d = new Date(now); d.setDate(d.getDate() + 2); return d;
+  }
+  if (/\bmañana\b/i.test(text.toLowerCase()) && !/\bde\s+la\s+mañana\b/i.test(text.toLowerCase())) {
+    const d = new Date(now); d.setDate(d.getDate() + 1); return d;
+  }
+  if (/\bhoy\b/i.test(text.toLowerCase())) return now;
+
+  // "el lunes", "el viernes", "este jueves"
+  for (const [name, dow] of Object.entries(DOW_WORDS)) {
+    const re = new RegExp(`\\b(el|este|proximo|próximo)?\\s*${name}\\b`, 'i');
+    if (re.test(t)) {
+      const d = new Date(now);
+      let diff = dow - d.getDay();
+      if (diff <= 0) diff += 7;
+      d.setDate(d.getDate() + diff);
+      return d;
+    }
+  }
+
+  // "27 de mayo", "veintisiete de mayo", "3 de junio"
+  // First try word numbers: "veintisiete de mayo"
+  for (const [word, num] of Object.entries(DAY_WORDS)) {
+    for (const [mname, mnum] of Object.entries(MONTH_WORDS)) {
+      const re = new RegExp(`\\b${word}\\s+de\\s+${mname}\\b`, 'i');
+      if (re.test(t)) {
+        const year = (mnum < now.getMonth() || (mnum === now.getMonth() && num < now.getDate())) ? now.getFullYear() + 1 : now.getFullYear();
+        return new Date(year, mnum, num);
+      }
+    }
+  }
+
+  // Then digit: "27 de mayo"
+  const dm = text.toLowerCase().match(/\b(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/i);
+  if (dm) {
+    const day = parseInt(dm[1]);
+    const mon = MONTH_WORDS[dm[2].toLowerCase()];
+    const year = (mon < now.getMonth() || (mon === now.getMonth() && day < now.getDate())) ? now.getFullYear() + 1 : now.getFullYear();
+    return new Date(year, mon, day);
+  }
+
+  return null; // no date found, use selectedDate
+}
+
+function stripDate(text) {
+  return text
+    .replace(/\bpasado\s+mañana\b/gi, '')
+    .replace(/\bmañana\b(?!\s+de\s+la\s+mañana)/gi, function(m, offset, str) {
+      // Only strip "mañana" meaning tomorrow, not "de la mañana"
+      if (/de\s+la\s+$/.test(str.substring(0, offset))) return m;
+      return '';
+    })
+    .replace(/\bhoy\b/gi, '')
+    .replace(/\b(el|este|proximo|próximo)\s+(lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)\b/gi, '')
+    .replace(/\b(lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)\b/gi, '')
+    .replace(/\b(primero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|dieciséis|dieciseis|diecisiete|dieciocho|diecinueve|veinte|veintiuno|veintiún|veintidós|veintidos|veintitrés|veintitres|veinticuatro|veinticinco|veintiséis|veintiseis|veintisiete|veintiocho|veintinueve|treinta|treinta y uno)\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/gi, '')
+    .replace(/\b\d{1,2}\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/gi, '')
+    .replace(/\bde\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/gi, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
 function stripTime(text) {
   return text
     .replace(/\ba\s+las?\s+(\d{1,2})[:\s]?\d{0,2}\b/gi, '')
@@ -774,7 +849,8 @@ function startQuickVoice() {
 
     let title = finalText.trim();
     let hour = parseTime(title);
-    title = stripTime(title);
+    const parsedDate = parseDate(title);
+    title = stripDate(stripTime(title));
 
     // Clean up
     title = title.replace(/^(anotar|apuntar|crear|añadir|poner)\s+/i, '');
@@ -782,14 +858,22 @@ function startQuickVoice() {
     title = title.charAt(0).toUpperCase() + title.slice(1);
     if (!title) return;
 
+    const evDate = parsedDate || selectedDate;
     const id = crypto.randomUUID();
-    const date = fmtDate(selectedDate);
+    const date = fmtDate(evDate);
     const ev = { id, title, date, start: hour, end: '', notes: '', color: 'indigo', reminders: [60, '9am', 1440] };
     events.push(ev);
     saveEvents();
     scheduleReminders(ev);
+
+    // Navigate to the event date
+    selectedDate = evDate;
+    currentMonth = evDate.getMonth();
+    currentYear = evDate.getFullYear();
     renderCalendar();
-    toast(`"${title}" creado a las ${hour}`, 'success');
+
+    const dateLabel = evDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+    toast(`"${title}" — ${dateLabel} a las ${hour}`, 'success');
   };
 
   recognition.onerror = (e) => {
