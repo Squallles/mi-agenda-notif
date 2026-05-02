@@ -110,14 +110,14 @@ body{min-height:100dvh}
 .tab span{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 
 /* ── FAB Micrófono ── */
-.fab-mic{position:fixed;bottom:100px;right:20px;width:56px;height:56px;border-radius:50%;border:none;background:var(--dark);color:#fff;cursor:pointer;display:grid;place-items:center;z-index:55;box-shadow:0 4px 20px #1a141040;transition:all .2s}
+.fab-mic{position:fixed;bottom:120px;right:20px;width:56px;height:56px;border-radius:50%;border:none;background:var(--dark);color:#fff;cursor:pointer;display:grid;place-items:center;z-index:55;box-shadow:0 4px 20px #1a141040;transition:all .2s}
 .fab-mic:hover{transform:scale(1.06)}
 .fab-mic:active{transform:scale(.94)}
 .fab-mic svg{width:24px;height:24px;z-index:2}
 .fab-mic.recording{background:var(--danger);box-shadow:0 4px 20px #e5393540}
 .fab-pulse{position:absolute;inset:0;border-radius:50%;background:var(--danger);opacity:0;z-index:1;pointer-events:none}
 .fab-mic.recording .fab-pulse{animation:fab-ring 1.5s ease-out infinite}
-.fab-transcript{position:fixed;bottom:168px;left:50%;transform:translateX(-50%);background:var(--surface);border-radius:var(--radius);padding:12px 20px;font-size:.88rem;font-weight:500;color:var(--text);z-index:55;box-shadow:0 4px 24px #1a141018;max-width:calc(100vw - 40px);text-align:center;display:none;animation:slideDown .2s ease}
+.fab-transcript{position:fixed;bottom:188px;left:50%;transform:translateX(-50%);background:var(--surface);border-radius:var(--radius);padding:12px 20px;font-size:.88rem;font-weight:500;color:var(--text);z-index:55;box-shadow:0 4px 24px #1a141018;max-width:calc(100vw - 40px);text-align:center;display:none;animation:slideDown .2s ease}
 .fab-transcript.visible{display:block}
 
 /* ── Search overlay ── */
@@ -332,6 +332,7 @@ body{min-height:100dvh}
       <div class="field">
         <label>Recordatorios</label>
         <div class="reminder-toggles">
+          <button type="button" class="rem-chip" data-min="1" onclick="toggleRem(this)">1 min (test)</button>
           <button type="button" class="rem-chip" data-min="0" onclick="toggleRem(this)">En el momento</button>
           <button type="button" class="rem-chip" data-min="5" onclick="toggleRem(this)">5 min</button>
           <button type="button" class="rem-chip" data-min="15" onclick="toggleRem(this)">15 min</button>
