@@ -1,160 +1,270 @@
-const express  = require('express');
-const cors     = require('cors');
-const webpush  = require('web-push');
-const fs       = require('fs');
-const path     = require('path');
+const express = require('express');
+const cors    = require('cors');
+const webpush = require('web-push');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ── VAPID keys (generated once, fixed) ───────────────────────────────────
-const VAPID_PUBLIC  = 'BAa__naKLX3Rox0_TuewP-4IcWBgfB5FoU7H2OK1jNeKeV1sVAgiAn2zDYRkup1-xJxfcVEraGeYLzaERyMOP-E';
-const VAPID_PRIVATE = 'zEhM5SEc-wFnV6w2W6ornWSjWbsWEJHJzwJz9_h05JE';
+// ── Config from env vars ────────────────────────────────────────────────
+const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
+const API_KEY       = process.env.API_KEY;
+const SUPABASE_URL  = process.env.SUPABASE_URL;
+const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
+
+if (!VAPID_PUBLIC || !VAPID_PRIVATE) throw new Error('Missing VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY env vars');
+if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('Missing SUPABASE_URL / SUPABASE_SERVICE_KEY env vars');
+if (!API_KEY) throw new Error('Missing API_KEY env var');
 
 webpush.setVapidDetails('mailto:ediciones.c@gmail.com', VAPID_PUBLIC, VAPID_PRIVATE);
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ── Persistent storage ───────────────────────────────────────────────────
-const SUBS_FILE   = path.join(__dirname, 'subscriptions.json');
-const NOTIFS_FILE = path.join(__dirname, 'notifs.json');
+// ── Metrics ─────────────────────────────────────────────────────────────
+const startedAt = Date.now();
+let lastPushAt = null;
+let pushCount  = 0;
+let errorCount = 0;
 
-let subscriptions = {};  // { playerId: subscriptionObject }
-let scheduled     = [];  // array of notification jobs
-
-function loadData() {
-  try { if(fs.existsSync(SUBS_FILE))   subscriptions = JSON.parse(fs.readFileSync(SUBS_FILE,'utf8')); } catch(e){}
-  try { if(fs.existsSync(NOTIFS_FILE)) scheduled     = JSON.parse(fs.readFileSync(NOTIFS_FILE,'utf8')); } catch(e){}
+// ── Auth middleware ─────────────────────────────────────────────────────
+function requireKey(req, res, next) {
+  // Public endpoints skip auth
+  if (req.path === '/api/vapid-public' || req.path === '/api/health') return next();
+  const key = req.headers['x-api-key'];
+  if (key !== API_KEY) return res.status(401).json({ error: 'Invalid or missing API key' });
+  next();
 }
-function saveSubs()   { try{ fs.writeFileSync(SUBS_FILE, JSON.stringify(subscriptions,null,2)); }catch(e){} }
-function saveNotifs() { try{ fs.writeFileSync(NOTIFS_FILE, JSON.stringify(scheduled,null,2)); }catch(e){} }
+app.use('/api', requireKey);
 
-loadData();
+// ── Send push with retry (max 2 retries) ───────────────────────────────
+async function sendPush(playerId, title, body, attempt = 0) {
+  const { data: row } = await supabase
+    .from('push_subscriptions')
+    .select('subscription')
+    .eq('player_id', playerId)
+    .single();
 
-// ── Send a push notification ─────────────────────────────────────────────
-async function sendPush(playerId, title, body) {
-  const sub = subscriptions[playerId];
-  if(!sub) { console.warn('No subscription for player:', playerId); return false; }
+  if (!row) { console.warn('No subscription for player:', playerId); return false; }
+
   try {
-    await webpush.sendNotification(sub, JSON.stringify({ title, body }));
-    console.log(`✅ Sent to ${playerId}: ${title}`);
+    await webpush.sendNotification(row.subscription, JSON.stringify({ title, body }));
+    console.log(`Sent to ${playerId}: ${title}`);
+    pushCount++;
+    lastPushAt = Date.now();
     return true;
-  } catch(e) {
-    console.error(`❌ Push failed for ${playerId}:`, e.statusCode, e.body);
-    // If subscription expired/invalid, remove it
-    if(e.statusCode === 410 || e.statusCode === 404) {
-      delete subscriptions[playerId];
-      saveSubs();
+  } catch (e) {
+    console.error(`Push failed for ${playerId} (attempt ${attempt}):`, e.statusCode, e.body);
+    errorCount++;
+
+    // Subscription expired — remove it
+    if (e.statusCode === 410 || e.statusCode === 404) {
+      await supabase.from('push_subscriptions').delete().eq('player_id', playerId);
+      return false;
     }
+
+    // Transient error — retry up to 2 times
+    if (attempt < 2 && (e.statusCode >= 500 || !e.statusCode)) {
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      return sendPush(playerId, title, body, attempt + 1);
+    }
+
     return false;
   }
 }
 
-// ── Polling loop every 20 seconds ────────────────────────────────────────
-setInterval(async () => {
-  const now = Date.now();
-  const due = scheduled.filter(n => !n.fired && n.fireAt <= now);
-  for(const n of due) {
-    console.log(`⏰ Firing: "${n.title}" for ${n.playerId}`);
-    const ok = await sendPush(n.playerId, n.title, n.body);
-    n.fired = true;
-    n.sentOk = ok;
-  }
-  if(due.length > 0) {
-    // Cleanup fired notifications older than 2 days
-    scheduled = scheduled.filter(n => !n.fired || (now - n.fireAt) < 172800000);
-    saveNotifs();
-  }
-}, 20000);
+// ── Smart polling loop ──────────────────────────────────────────────────
+async function pollAndFire() {
+  try {
+    const now = Date.now();
 
-// ── API ──────────────────────────────────────────────────────────────────
+    // Get due notifications
+    const { data: due, error } = await supabase
+      .from('scheduled_notifications')
+      .select('*')
+      .eq('fired', false)
+      .lte('fire_at', now)
+      .order('fire_at', { ascending: true })
+      .limit(50);
 
-// Return VAPID public key so the client can subscribe
+    if (error) { console.error('Poll error:', error.message); return scheduleNext(10000); }
+
+    for (const n of due) {
+      console.log(`Firing: "${n.title}" for ${n.player_id}`);
+      const ok = await sendPush(n.player_id, n.title, n.body);
+      await supabase
+        .from('scheduled_notifications')
+        .update({ fired: true, sent_ok: ok, retries: n.retries + (ok ? 0 : 1) })
+        .eq('id', n.id);
+    }
+
+    // Cleanup: delete fired notifications older than 2 days
+    if (due.length > 0) {
+      await supabase
+        .from('scheduled_notifications')
+        .delete()
+        .eq('fired', true)
+        .lt('fire_at', now - 172800000);
+    }
+
+    // Calculate time until next notification
+    const { data: nextRow } = await supabase
+      .from('scheduled_notifications')
+      .select('fire_at')
+      .eq('fired', false)
+      .order('fire_at', { ascending: true })
+      .limit(1)
+      .single();
+
+    if (nextRow) {
+      const delay = Math.max(1000, nextRow.fire_at - Date.now());
+      // Cap at 30s so new schedules are picked up reasonably fast
+      scheduleNext(Math.min(delay, 30000));
+    } else {
+      // Nothing pending — check again in 30s
+      scheduleNext(30000);
+    }
+  } catch (e) {
+    console.error('Poll exception:', e.message);
+    scheduleNext(10000);
+  }
+}
+
+function scheduleNext(ms) {
+  setTimeout(pollAndFire, ms);
+}
+
+// Start polling
+pollAndFire();
+
+// ── API ─────────────────────────────────────────────────────────────────
+
+// Return VAPID public key (no auth needed)
 app.get('/api/vapid-public', (req, res) => {
   res.json({ publicKey: VAPID_PUBLIC });
 });
 
 // Save push subscription from browser
-app.post('/api/subscribe', (req, res) => {
-  const { subscription } = req.body;
-  if(!subscription || !subscription.endpoint)
-    return res.status(400).json({ error: 'Invalid subscription' });
-  // Use endpoint as stable player ID
-  const playerId = Buffer.from(subscription.endpoint).toString('base64').slice(-32);
-  subscriptions[playerId] = subscription;
-  saveSubs();
-  console.log(`📱 New subscription: ${playerId}`);
+// Client sends { playerId, subscription } — playerId is a UUID stored in localStorage
+app.post('/api/subscribe', async (req, res) => {
+  const { playerId, subscription } = req.body;
+  if (!playerId || !subscription || !subscription.endpoint)
+    return res.status(400).json({ error: 'Missing playerId or invalid subscription' });
+
+  const { error } = await supabase
+    .from('push_subscriptions')
+    .upsert({ player_id: playerId, subscription, updated_at: new Date().toISOString() },
+             { onConflict: 'player_id' });
+
+  if (error) return res.status(500).json({ error: error.message });
+  console.log(`Subscription: ${playerId}`);
   res.json({ ok: true, playerId });
 });
 
 // Schedule a notification
-app.post('/api/schedule', (req, res) => {
+app.post('/api/schedule', async (req, res) => {
   const { playerId, title, body, fireAt, eventId, remIndex } = req.body;
-  if(!playerId || !title || !fireAt)
+  if (!playerId || !title || !fireAt)
     return res.status(400).json({ error: 'Missing: playerId, title, fireAt' });
+
   const fireMs = new Date(fireAt).getTime();
-  if(isNaN(fireMs)) return res.status(400).json({ error: 'Invalid fireAt' });
-  // Deduplicate
-  scheduled = scheduled.filter(n => !(n.eventId === eventId && n.remIndex === remIndex));
-  const notif = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2,5),
-    playerId, title, body,
-    fireAt: fireMs, eventId: eventId||null,
-    remIndex: remIndex??null, fired: false, createdAt: Date.now()
-  };
-  scheduled.push(notif);
-  saveNotifs();
-  console.log(`📅 Scheduled: "${title}" at ${new Date(fireMs).toLocaleString()}`);
-  res.json({ ok: true, id: notif.id, fireAt: new Date(fireMs).toISOString() });
+  if (isNaN(fireMs)) return res.status(400).json({ error: 'Invalid fireAt' });
+
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+
+  // Deduplicate: remove existing with same eventId + remIndex
+  if (eventId != null && remIndex != null) {
+    await supabase
+      .from('scheduled_notifications')
+      .delete()
+      .eq('event_id', eventId)
+      .eq('rem_index', remIndex);
+  }
+
+  const { error } = await supabase
+    .from('scheduled_notifications')
+    .insert({
+      id, player_id: playerId, title, body,
+      fire_at: fireMs, event_id: eventId || null,
+      rem_index: remIndex ?? null, fired: false, created_at: Date.now()
+    });
+
+  if (error) return res.status(500).json({ error: error.message });
+  console.log(`Scheduled: "${title}" at ${new Date(fireMs).toISOString()}`);
+  res.json({ ok: true, id, fireAt: new Date(fireMs).toISOString() });
 });
 
 // Cancel all notifications for an event
-app.delete('/api/cancel/:eventId', (req, res) => {
-  const before = scheduled.length;
-  scheduled = scheduled.filter(n => n.eventId !== req.params.eventId);
-  saveNotifs();
-  res.json({ ok: true, removed: before - scheduled.length });
+app.delete('/api/cancel/:eventId', async (req, res) => {
+  const { data, error } = await supabase
+    .from('scheduled_notifications')
+    .delete()
+    .eq('event_id', req.params.eventId)
+    .select('id');
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true, removed: data.length });
 });
 
 // Send a test push immediately
 app.post('/api/test', async (req, res) => {
   const { playerId } = req.body;
-  if(!playerId) return res.status(400).json({ error: 'Missing playerId' });
-  if(!subscriptions[playerId]) return res.status(404).json({ error: 'Player ID not found in server. Re-activate notifications.' });
-  const ok = await sendPush(playerId, '🔔 Mi Agenda', 'Las notificaciones funcionan correctamente');
+  if (!playerId) return res.status(400).json({ error: 'Missing playerId' });
+
+  const { data } = await supabase
+    .from('push_subscriptions')
+    .select('player_id')
+    .eq('player_id', playerId)
+    .single();
+
+  if (!data) return res.status(404).json({ error: 'Player ID not found. Re-activate notifications.' });
+  const ok = await sendPush(playerId, 'Mi Agenda', 'Las notificaciones funcionan correctamente');
   res.json({ ok });
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
+// Health check (no auth needed)
+app.get('/api/health', async (req, res) => {
   const now = Date.now();
-  const pending = scheduled.filter(n => !n.fired && n.fireAt > now);
-  const next    = [...pending].sort((a,b) => a.fireAt - b.fireAt)[0];
+
+  const [subsResult, pendingResult, totalResult, nextResult] = await Promise.all([
+    supabase.from('push_subscriptions').select('player_id', { count: 'exact', head: true }),
+    supabase.from('scheduled_notifications').select('id', { count: 'exact', head: true }).eq('fired', false).gt('fire_at', 0),
+    supabase.from('scheduled_notifications').select('id', { count: 'exact', head: true }),
+    supabase.from('scheduled_notifications').select('fire_at, title').eq('fired', false).order('fire_at', { ascending: true }).limit(1).single()
+  ]);
+
   res.json({
     ok: true,
-    subscribers: Object.keys(subscriptions).length,
-    pending: pending.length,
-    total: scheduled.length,
-    nextFire:  next ? new Date(next.fireAt).toISOString() : null,
-    nextTitle: next ? next.title : null
+    uptime: Math.floor((now - startedAt) / 1000),
+    subscribers: subsResult.count || 0,
+    pending: pendingResult.count || 0,
+    total: totalResult.count || 0,
+    nextFire: nextResult.data ? new Date(nextResult.data.fire_at).toISOString() : null,
+    nextTitle: nextResult.data ? nextResult.data.title : null,
+    pushesSent: pushCount,
+    lastPushAt: lastPushAt ? new Date(lastPushAt).toISOString() : null,
+    errors: errorCount
   });
 });
 
 // Status for a specific player
-app.get('/api/status/:playerId', (req, res) => {
-  const now     = Date.now();
-  const mine    = scheduled.filter(n => n.playerId === req.params.playerId);
-  const pending = mine.filter(n => !n.fired && n.fireAt > now);
+app.get('/api/status/:playerId', async (req, res) => {
+  const pid = req.params.playerId;
+
+  const [subResult, pendingResult] = await Promise.all([
+    supabase.from('push_subscriptions').select('player_id').eq('player_id', pid).single(),
+    supabase.from('scheduled_notifications').select('*').eq('player_id', pid).eq('fired', false).order('fire_at', { ascending: true })
+  ]);
+
   res.json({
     ok: true,
-    subscribed: !!subscriptions[req.params.playerId],
-    pending: pending.length,
-    next: [...pending].sort((a,b)=>a.fireAt-b.fireAt)[0] || null
+    subscribed: !!subResult.data,
+    pending: pendingResult.data ? pendingResult.data.length : 0,
+    next: pendingResult.data?.[0] || null
   });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Mi Agenda notif server on port ${PORT}`);
-  console.log(`   Subscribers: ${Object.keys(subscriptions).length}`);
-  console.log(`   Scheduled:   ${scheduled.length}`);
+  console.log(`Mi Agenda notif server on port ${PORT}`);
 });
