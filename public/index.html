@@ -793,62 +793,144 @@ let fabRecognition = null;
 function startQuickVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return toast('Voz no soportada', 'error');
-  const fab = document.getElementById('fabMic'); const transcript = document.getElementById('fabTranscript');
-  if (fabRecognition) { fabRecognition.stop(); return; }
+  const fab = document.getElementById('fabMic');
+  const transcript = document.getElementById('fabTranscript');
+  if (fabRecognition) { fabRecognition.stop(); fabRecognition = null; return; }
+
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  const recognition = new SR();
-  recognition.lang = 'es-ES';
-  recognition.continuous = !isIOS; // iOS no soporta continuous bien
-  recognition.interimResults = true;
-  fabRecognition = recognition;
-  fab.classList.add('recording'); transcript.classList.add('visible'); transcript.textContent = 'Escuchando...';
-  let finalText = '', silenceTimer = null, hasSpoken = false;
+  let accumulatedText = ''; // Text accumulated across restarts (iOS)
+  let currentInterim = '';
+  let silenceTimer = null;
+  let stopped = false;
+  let restartCount = 0;
+
+  function createRecognition() {
+    const r = new SR();
+    r.lang = 'es-ES';
+    r.continuous = !isIOS;
+    r.interimResults = true;
+    r.maxAlternatives = 3;
+    return r;
+  }
+
+  function showText() {
+    const display = (accumulatedText + ' ' + currentInterim).trim();
+    transcript.textContent = display || 'Habla ahora...';
+  }
 
   function resetSilenceTimer() {
     clearTimeout(silenceTimer);
-    silenceTimer = setTimeout(() => { recognition.stop(); }, 2000);
+    silenceTimer = setTimeout(() => {
+      stopped = true;
+      if (fabRecognition) fabRecognition.stop();
+    }, 2500);
   }
 
-  recognition.onaudiostart = () => { transcript.textContent = 'Habla ahora...'; };
+  function processResult() {
+    const fullText = accumulatedText.trim();
+    fab.classList.remove('recording');
+    transcript.classList.remove('visible');
+    fabRecognition = null;
 
-  recognition.onresult = (e) => {
-    hasSpoken = true;
-    let interim = ''; finalText = '';
-    for (let i = 0; i < e.results.length; i++) {
-      if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
-      else interim += e.results[i][0].transcript;
-    }
-    transcript.textContent = (finalText + interim) || 'Escuchando...';
-    resetSilenceTimer();
-  };
-
-  recognition.onend = () => {
-    clearTimeout(silenceTimer);
-    // iOS non-continuous: if user spoke, process. If not, restart once.
-    if (isIOS && !hasSpoken && fab.classList.contains('recording')) {
-      try { recognition.start(); return; } catch(e) {}
-    }
-    fab.classList.remove('recording'); transcript.classList.remove('visible'); fabRecognition = null;
-    if (!finalText.trim()) return;
-    let title = finalText.trim(); let hour = parseTime(title); const parsedDate = parseDate(title); title = stripDate(stripTime(title));
+    if (!fullText) return;
+    let title = fullText;
+    let hour = parseTime(title);
+    const parsedDate = parseDate(title);
+    title = stripDate(stripTime(title));
     title = title.replace(/^(anotar|apuntar|crear|añadir|poner)\s+/i, '').replace(/\s+/g,' ').trim();
-    title = title.charAt(0).toUpperCase() + title.slice(1); if (!title) return;
-    const evDate = parsedDate || selectedDate; const id = crypto.randomUUID(); const date = fmtDate(evDate);
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+    if (!title) return;
+
+    const evDate = parsedDate || selectedDate;
+    const id = crypto.randomUUID();
+    const date = fmtDate(evDate);
     const ev = { id, title, date, start: hour, end: '', notes: '', color: 'orange', reminders: [60, '9am', 1440] };
     events.push(ev); saveEvents(); scheduleReminders(ev);
     selectedDate = evDate; currentMonth = evDate.getMonth(); currentYear = evDate.getFullYear(); showMonth();
     toast(`"${title}" — ${evDate.toLocaleDateString('es-ES',{day:'numeric',month:'long'})} a las ${hour}`, 'success');
-  };
+  }
 
-  recognition.onerror = (e) => {
-    clearTimeout(silenceTimer); fab.classList.remove('recording'); transcript.classList.remove('visible'); fabRecognition = null;
-    if (e.error === 'not-allowed') toast('Permite acceso al micrófono', 'error');
-    else if (e.error === 'no-speech') toast('No se detectó voz, inténtalo de nuevo', 'error');
-    else if (e.error !== 'aborted') toast('Error de voz: ' + e.error, 'error');
-  };
+  function startRecognition() {
+    const recognition = createRecognition();
+    fabRecognition = recognition;
 
-  recognition.start();
-  // NO timer inicial — solo empieza el timer cuando el usuario habla
+    recognition.onresult = (e) => {
+      currentInterim = '';
+      let sessionFinal = '';
+      for (let i = 0; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          // Pick the best alternative
+          let best = e.results[i][0].transcript;
+          for (let a = 1; a < e.results[i].length; a++) {
+            if (e.results[i][a].confidence > e.results[i][0].confidence) {
+              best = e.results[i][a].transcript;
+            }
+          }
+          sessionFinal += best;
+        } else {
+          currentInterim += e.results[i][0].transcript;
+        }
+      }
+      if (sessionFinal) {
+        accumulatedText += (accumulatedText ? ' ' : '') + sessionFinal;
+        currentInterim = '';
+      }
+      showText();
+      resetSilenceTimer();
+    };
+
+    recognition.onend = () => {
+      clearTimeout(silenceTimer);
+      if (stopped || !fab.classList.contains('recording')) {
+        processResult();
+        return;
+      }
+      // iOS: recognition ended on its own — restart to keep listening
+      if (isIOS && restartCount < 10) {
+        restartCount++;
+        try {
+          const r = createRecognition();
+          fabRecognition = r;
+          r.onresult = recognition.onresult;
+          r.onend = recognition.onend;
+          r.onerror = recognition.onerror;
+          r.onaudiostart = recognition.onaudiostart;
+          r.start();
+          resetSilenceTimer();
+          return;
+        } catch(e) {}
+      }
+      processResult();
+    };
+
+    recognition.onaudiostart = () => { transcript.textContent = 'Habla ahora...'; };
+
+    recognition.onerror = (e) => {
+      if (e.error === 'no-speech') {
+        // iOS fires this often — just restart
+        if (isIOS && !stopped && restartCount < 10) {
+          restartCount++;
+          try { recognition.start(); return; } catch(ex) {}
+        }
+        clearTimeout(silenceTimer); fab.classList.remove('recording');
+        transcript.classList.remove('visible'); fabRecognition = null;
+        if (!accumulatedText) toast('No se detectó voz', 'error');
+        else processResult();
+        return;
+      }
+      clearTimeout(silenceTimer); fab.classList.remove('recording');
+      transcript.classList.remove('visible'); fabRecognition = null;
+      if (e.error === 'not-allowed') toast('Permite acceso al micrófono', 'error');
+      else if (e.error !== 'aborted') toast('Error: ' + e.error, 'error');
+    };
+
+    recognition.start();
+  }
+
+  fab.classList.add('recording');
+  transcript.classList.add('visible');
+  transcript.textContent = 'Escuchando...';
+  startRecognition();
 }
 
 // ── Alarm sound + overlay ───────────────────────────────────────────────
