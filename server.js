@@ -10,6 +10,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Config from env vars ────────────────────────────────────────────────
+const DEEPGRAM_KEY  = process.env.DEEPGRAM_API_KEY;
 const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
 const API_KEY       = process.env.API_KEY;
@@ -258,6 +259,33 @@ app.post('/api/stop-alarm', (req, res) => {
     for (const [id] of activeAlarms) { stopAlarmBurst(id); }
   }
   res.json({ ok: true, remaining: activeAlarms.size });
+});
+
+// Transcribe audio via Deepgram
+app.post('/api/transcribe', async (req, res) => {
+  if (!DEEPGRAM_KEY) return res.status(500).json({ error: 'Deepgram not configured' });
+  try {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', async () => {
+      const audioBuffer = Buffer.concat(chunks);
+      const dgRes = await fetch('https://api.deepgram.com/v1/listen?model=nova-3&language=es&punctuate=true&smart_format=true', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${DEEPGRAM_KEY}`,
+          'Content-Type': req.headers['content-type'] || 'audio/webm'
+        },
+        body: audioBuffer
+      });
+      const data = await dgRes.json();
+      const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+      console.log(`Transcription: "${transcript}"`);
+      res.json({ ok: true, text: transcript });
+    });
+  } catch (e) {
+    console.error('Transcribe error:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Send a test push immediately

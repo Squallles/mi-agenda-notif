@@ -788,149 +788,133 @@ function stripTime(text) {
   return text.replace(/\ba\s+las?\s+(\d{1,2})[:\s]?\d{0,2}\b/gi,'').replace(/\ba\s+las?\s+(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(\s+y\s+media)?\b/gi,'').replace(/\b(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(\s+y\s+media)?\s+de\s+la\s+(mañana|tarde|noche)\b/gi,'').replace(/\b\d{1,2}(\s+y\s+media)?\s+de\s+la\s+(mañana|tarde|noche)\b/gi,'').replace(/\b(por\s+la\s+(mañana|tarde|noche)|a\s+mediodía|al\s+mediodía)\b/gi,'').replace(/\bde\s+la\s+(mañana|tarde|noche)\b/gi,'').replace(/\s+/g,' ').trim();
 }
 
-// ── FAB: voz rápida ─────────────────────────────────────────────────────
-let fabRecognition = null;
-function startQuickVoice() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return toast('Voz no soportada', 'error');
+// ── FAB: voz rápida (Deepgram) ──────────────────────────────────────────
+let mediaRecorder = null;
+let audioChunks = [];
+
+async function startQuickVoice() {
   const fab = document.getElementById('fabMic');
   const transcript = document.getElementById('fabTranscript');
-  if (fabRecognition) { fabRecognition.stop(); fabRecognition = null; return; }
 
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  let accumulatedText = ''; // Text accumulated across restarts (iOS)
-  let currentInterim = '';
-  let silenceTimer = null;
-  let stopped = false;
-  let restartCount = 0;
-
-  function createRecognition() {
-    const r = new SR();
-    r.lang = 'es-ES';
-    r.continuous = !isIOS;
-    r.interimResults = true;
-    r.maxAlternatives = 3;
-    return r;
+  // If recording, stop
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    return;
   }
 
-  function showText() {
-    const display = (accumulatedText + ' ' + currentInterim).trim();
-    transcript.textContent = display || 'Habla ahora...';
-  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Use webm on most browsers, mp4 on Safari
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+      : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
 
-  function resetSilenceTimer() {
-    clearTimeout(silenceTimer);
-    silenceTimer = setTimeout(() => {
-      stopped = true;
-      if (fabRecognition) fabRecognition.stop();
-    }, 2500);
-  }
+    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+    audioChunks = [];
+    let silenceTimer = null;
 
-  function processResult() {
-    const fullText = accumulatedText.trim();
+    fab.classList.add('recording');
+    transcript.classList.add('visible');
+    transcript.textContent = 'Habla ahora...';
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunks.push(e.data);
+    };
+
+    // Auto-stop after silence: use analyser to detect silence
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    const dataArray = new Uint8Array(analyser.fftSize);
+    let lastSoundTime = Date.now();
+    let speaking = false;
+
+    function checkSilence() {
+      if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
+      analyser.getByteTimeDomainData(dataArray);
+      let maxVal = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = Math.abs(dataArray[i] - 128);
+        if (v > maxVal) maxVal = v;
+      }
+      if (maxVal > 10) { lastSoundTime = Date.now(); speaking = true; }
+      // Stop after 2s of silence, but only if user has spoken
+      if (speaking && Date.now() - lastSoundTime > 2000) {
+        mediaRecorder.stop();
+        return;
+      }
+      // Max recording 15s
+      if (Date.now() - lastSoundTime > 15000 && !speaking) {
+        mediaRecorder.stop();
+        return;
+      }
+      requestAnimationFrame(checkSilence);
+    }
+    checkSilence();
+
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      audioCtx.close().catch(()=>{});
+      fab.classList.remove('recording');
+      transcript.textContent = 'Procesando...';
+
+      if (audioChunks.length === 0) {
+        transcript.classList.remove('visible');
+        toast('No se grabó audio', 'error');
+        return;
+      }
+
+      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+      mediaRecorder = null;
+
+      try {
+        const res = await fetch('/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': blob.type, 'x-api-key': API_KEY },
+          body: blob
+        });
+        const data = await res.json();
+        transcript.classList.remove('visible');
+
+        if (!data.ok || !data.text.trim()) {
+          toast('No se entendió, inténtalo de nuevo', 'error');
+          return;
+        }
+
+        const fullText = data.text.trim();
+        let title = fullText;
+        let hour = parseTime(title);
+        const parsedDate = parseDate(title);
+        title = stripDate(stripTime(title));
+        title = title.replace(/^(anotar|apuntar|crear|añadir|poner)\s+/i, '').replace(/\s+/g,' ').trim();
+        // Remove trailing period that Deepgram adds
+        title = title.replace(/\.$/, '').trim();
+        title = title.charAt(0).toUpperCase() + title.slice(1);
+        if (!title) { toast('No se entendió', 'error'); return; }
+
+        const evDate = parsedDate || selectedDate;
+        const id = crypto.randomUUID();
+        const date = fmtDate(evDate);
+        const ev = { id, title, date, start: hour, end: '', notes: '', color: 'orange', reminders: [60, '9am', 1440] };
+        events.push(ev); saveEvents(); scheduleReminders(ev);
+        selectedDate = evDate; currentMonth = evDate.getMonth(); currentYear = evDate.getFullYear(); showMonth();
+        toast(`"${title}" — ${evDate.toLocaleDateString('es-ES',{day:'numeric',month:'long'})} a las ${hour}`, 'success');
+      } catch (e) {
+        transcript.classList.remove('visible');
+        toast('Error al procesar voz', 'error');
+        console.error('Transcribe error:', e);
+      }
+    };
+
+    mediaRecorder.start(250); // collect data every 250ms
+  } catch (e) {
     fab.classList.remove('recording');
     transcript.classList.remove('visible');
-    fabRecognition = null;
-
-    if (!fullText) return;
-    let title = fullText;
-    let hour = parseTime(title);
-    const parsedDate = parseDate(title);
-    title = stripDate(stripTime(title));
-    title = title.replace(/^(anotar|apuntar|crear|añadir|poner)\s+/i, '').replace(/\s+/g,' ').trim();
-    title = title.charAt(0).toUpperCase() + title.slice(1);
-    if (!title) return;
-
-    const evDate = parsedDate || selectedDate;
-    const id = crypto.randomUUID();
-    const date = fmtDate(evDate);
-    const ev = { id, title, date, start: hour, end: '', notes: '', color: 'orange', reminders: [60, '9am', 1440] };
-    events.push(ev); saveEvents(); scheduleReminders(ev);
-    selectedDate = evDate; currentMonth = evDate.getMonth(); currentYear = evDate.getFullYear(); showMonth();
-    toast(`"${title}" — ${evDate.toLocaleDateString('es-ES',{day:'numeric',month:'long'})} a las ${hour}`, 'success');
+    if (e.name === 'NotAllowedError') toast('Permite acceso al micrófono', 'error');
+    else toast('Error: ' + e.message, 'error');
   }
-
-  function startRecognition() {
-    const recognition = createRecognition();
-    fabRecognition = recognition;
-
-    recognition.onresult = (e) => {
-      currentInterim = '';
-      let sessionFinal = '';
-      for (let i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          // Pick the best alternative
-          let best = e.results[i][0].transcript;
-          for (let a = 1; a < e.results[i].length; a++) {
-            if (e.results[i][a].confidence > e.results[i][0].confidence) {
-              best = e.results[i][a].transcript;
-            }
-          }
-          sessionFinal += best;
-        } else {
-          currentInterim += e.results[i][0].transcript;
-        }
-      }
-      if (sessionFinal) {
-        accumulatedText += (accumulatedText ? ' ' : '') + sessionFinal;
-        currentInterim = '';
-      }
-      showText();
-      resetSilenceTimer();
-    };
-
-    recognition.onend = () => {
-      clearTimeout(silenceTimer);
-      if (stopped || !fab.classList.contains('recording')) {
-        processResult();
-        return;
-      }
-      // iOS: recognition ended on its own — restart to keep listening
-      if (isIOS && restartCount < 10) {
-        restartCount++;
-        try {
-          const r = createRecognition();
-          fabRecognition = r;
-          r.onresult = recognition.onresult;
-          r.onend = recognition.onend;
-          r.onerror = recognition.onerror;
-          r.onaudiostart = recognition.onaudiostart;
-          r.start();
-          resetSilenceTimer();
-          return;
-        } catch(e) {}
-      }
-      processResult();
-    };
-
-    recognition.onaudiostart = () => { transcript.textContent = 'Habla ahora...'; };
-
-    recognition.onerror = (e) => {
-      if (e.error === 'no-speech') {
-        // iOS fires this often — just restart
-        if (isIOS && !stopped && restartCount < 10) {
-          restartCount++;
-          try { recognition.start(); return; } catch(ex) {}
-        }
-        clearTimeout(silenceTimer); fab.classList.remove('recording');
-        transcript.classList.remove('visible'); fabRecognition = null;
-        if (!accumulatedText) toast('No se detectó voz', 'error');
-        else processResult();
-        return;
-      }
-      clearTimeout(silenceTimer); fab.classList.remove('recording');
-      transcript.classList.remove('visible'); fabRecognition = null;
-      if (e.error === 'not-allowed') toast('Permite acceso al micrófono', 'error');
-      else if (e.error !== 'aborted') toast('Error: ' + e.error, 'error');
-    };
-
-    recognition.start();
-  }
-
-  fab.classList.add('recording');
-  transcript.classList.add('visible');
-  transcript.textContent = 'Escuchando...';
-  startRecognition();
 }
 
 // ── Alarm sound + overlay ───────────────────────────────────────────────
